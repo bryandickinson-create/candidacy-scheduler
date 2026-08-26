@@ -374,6 +374,7 @@ window.addEventListener('hashchange', function () { route(); render(); });
 
 function render() {
   route();
+  closeNameMenu();
   var app = $('#app');
   var keepY = window.scrollY;
   app.textContent = '';
@@ -390,6 +391,76 @@ function render() {
   if (keepY) window.scrollTo(0, keepY);
 }
 
+/* A name picker that drops out of the header, so you can jump to anyone's
+   availability from any tab without going back to the Faculty list. */
+function closeNameMenu() {
+  var m = $('#name-menu');
+  if (m) m.remove();
+  document.removeEventListener('keydown', nameMenuKey);
+  document.removeEventListener('mousedown', nameMenuAway);
+}
+function nameMenuKey(ev) { if (ev.key === 'Escape') closeNameMenu(); }
+function nameMenuAway(ev) {
+  var m = $('#name-menu');
+  if (!m) return;
+  // the target can be a text node or document itself, neither of which has closest()
+  var t = ev.target;
+  var el = (t && t.nodeType === 1) ? t : (t && t.parentElement);
+  if (m.contains(t)) return;
+  if (el && el.closest && el.closest('.namebtn')) return;
+  closeNameMenu();
+}
+
+function openNameMenu(anchor) {
+  if ($('#name-menu')) { closeNameMenu(); return; }
+  var facs = facList();
+
+  var list = h('div', { class: 'menu-list' });
+  function draw(q) {
+    list.textContent = '';
+    var shown = facs.filter(function (f) { return !q || f.name.toLowerCase().indexOf(q) >= 0; });
+    if (!shown.length) { list.appendChild(h('div', { class: 'sub', style: 'padding:.6rem', text: 'No match' })); return; }
+    shown.forEach(function (f) {
+      list.appendChild(h('button', {
+        class: 'menu-item' + (f.id === S.me ? ' is-me' : ''),
+        onclick: function () {
+          if (f.id !== S.me && submitted(f.id) &&
+              !confirm(f.name + ' has already submitted.\n\nOpen their availability? Only change it if you are ' + f.name + '.')) return;
+          closeNameMenu();
+          setMe(f.id);
+          location.hash = '#/me';
+          render();
+        }
+      }, [
+        h('span', { text: f.name }),
+        h('span', { class: 'spacer' }),
+        submitted(f.id) ? h('span', { class: 'pill ok', text: '✓' }) : h('span', { class: 'pill bad', text: '—' })
+      ]));
+    });
+  }
+  draw('');
+
+  var menu = h('div', { id: 'name-menu', class: 'menu' }, [
+    h('input', { type: 'text', class: 'menu-filter', placeholder: 'Type to find your name…',
+      oninput: function (ev) { draw(ev.target.value.toLowerCase().trim()); } }),
+    list,
+    h('div', { class: 'menu-foot sub', text: '✓ submitted · — not yet' })
+  ]);
+
+  document.body.appendChild(menu);
+  var r = anchor.getBoundingClientRect();
+  var w = Math.min(320, window.innerWidth - 16);
+  menu.style.width = w + 'px';
+  menu.style.top = (r.bottom + 6) + 'px';
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+  setTimeout(function () {
+    var f = menu.querySelector('.menu-filter');
+    if (f && window.innerWidth > 640) f.focus();
+    document.addEventListener('keydown', nameMenuKey);
+    document.addEventListener('mousedown', nameMenuAway);
+  }, 0);
+}
+
 function topbar() {
   var st = settings();
   var right = [];
@@ -399,10 +470,12 @@ function topbar() {
     right.push(h('span', { class: 'whoami' }, [
       h('span', { class: 'sub', text: 'You are ' }),
       h('b', { text: facName(S.me) }),
-      h('button', { class: 'btn sm ghost', text: 'switch', onclick: function () { setMe(null); location.hash = '#/people'; render(); } })
+      h('button', { class: 'btn sm ghost namebtn', text: 'switch ▾',
+        onclick: function (ev) { openNameMenu(ev.currentTarget); } })
     ]));
   } else {
-    right.push(h('button', { class: 'btn sm primary', text: 'Choose your name', onclick: function () { location.hash = '#/people'; } }));
+    right.push(h('button', { class: 'btn sm primary namebtn', text: 'Choose your name ▾',
+      onclick: function (ev) { openNameMenu(ev.currentTarget); } }));
   }
   return h('div', { class: 'topbar' }, [
     h('div', { class: 'topbar-in' }, [

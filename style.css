@@ -141,3 +141,17 @@ ul.clean li:last-child{border-bottom:0}
   body{background:#fff}
   .card{box-shadow:none;break-inside:avoid}
 }
+
+/* ---- header name picker ---- */
+.menu{position:fixed;z-index:120;background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;
+  max-height:min(70vh,460px)}
+.menu-filter{border:0;border-bottom:1px solid var(--line);border-radius:0;padding:.6rem .7rem;width:100%;
+  background:var(--panel);color:var(--ink);font:inherit}
+.menu-filter:focus{outline:2px solid color-mix(in srgb,var(--accent) 40%,transparent);outline-offset:-2px}
+.menu-list{overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch}
+.menu-item{display:flex;align-items:center;gap:.5rem;width:100%;border:0;background:none;color:var(--ink);
+  font:inherit;text-align:left;padding:.45rem .7rem;cursor:pointer}
+.menu-item:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.menu-item.is-me{background:color-mix(in srgb,var(--ok) 12%,transparent);font-weight:600}
+.menu-foot{padding:.4rem .7rem;border-top:1px solid var(--line);font-size:.75rem}
