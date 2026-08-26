@@ -111,16 +111,39 @@ next time. *switch* in the header changes it.
 `bump.sh` bumps the `?v=` cache-buster on every asset — run it after any
 CSS/JS change so a cached file can never outlive a deploy.
 
+## Deploying
+
+One branch, `main`, served directly by GitHub Pages at
+<https://bryandickinson-create.github.io/candidacy-scheduler/>. There is no
+build step, so a deploy is:
+
+```sh
+./bump.sh && git add -A && git commit -m "…" && git push
+```
+
+Pages rebuilds within about a minute. Always run `bump.sh` — without it a
+browser can keep serving yesterday's `app.js` against today's `style.css`.
+
+The organiser console is the same URL with `#/admin` on the end.
+
+
 ## How the scheduling works
 
-`solver.js` is a pure function of (settings, roster, availability, pins). It
+`solver.js` is a pure function of (settings, roster, availability, bookings). It
 builds 30-minute availability cells and hourly candidate starts, then runs a
 branch-and-bound search with minimum-remaining-values ordering and incremental
 constraint propagation — 52 exams over ~290 candidate starts solves in a few
 milliseconds. It maximises the number scheduled rather than failing outright, so
 a partially-answered roster still produces a partial board.
 
-It prefers to leave exams where they already are, so one new reply nudges the
-board instead of reshuffling it. Every browser solves locally for instant
-feedback, but the first published board wins and the others adopt it, so
-everyone is looking at the same schedule.
+Its primary output is not one assignment but, for each exam, **every** time that
+works right now — given availability, the student's constraints, and the
+bookings already made. That is what "ready to book" counts. A time only becomes
+real when the organiser books it, and bookings live in the database, so every
+browser derives the same board with no coordination between them.
+
+The search is still there, behind "Suggest times for all": it proposes a
+complete, clash-free set so the organiser can see a way to finish rather than
+booking greedily into a corner. It is advisory and never written on its own.
+`bookingImpact()` guards the other direction — before a booking is taken, it
+reports which other exams that choice would leave with no workable time.
