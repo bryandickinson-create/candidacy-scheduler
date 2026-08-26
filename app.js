@@ -468,6 +468,20 @@ function progressCard() {
   ]);
 }
 
+/* A short human summary of an exam's special considerations, for the board. */
+function considerationText(e) {
+  var out = (e.blackouts || []).map(function (b) {
+    var when = b.dow != null
+      ? 'no ' + DOWS[b.dow] + 'days'
+      : (b.from === b.to ? 'not ' + fmtDay(b.from) : 'not ' + fmtDay(b.from) + '–' + fmtDay(b.to));
+    var t = (b.fromMin != null || b.toMin != null)
+      ? ' ' + fmtTime(b.fromMin != null ? b.fromMin : 0) + '–' + fmtTime(b.toMin != null ? b.toMin : 1440) : '';
+    return (b.label ? b.label + ' (' + when + t + ')' : when + t);
+  });
+  if (e.note) out.push(e.note);
+  return out.join(' · ');
+}
+
 /* ========================================================== board view ==== */
 
 function myExams() {
@@ -513,10 +527,13 @@ function tabSchedule(body) {
           : (res.diag[e.id] && res.diag[e.id].common === 0)
             ? h('span', { class: 'pill bad', text: 'no time works for all three' })
             : h('span', { class: 'pill warn', text: 'every workable time is taken' });
-        return h('li', { class: 'row' }, [
-          h('b', { text: examName(e) }),
-          h('span', { class: 'sub', text: (e.members || []).map(facName).join(', ') }),
-          h('span', { class: 'spacer' }), why
+        return h('li', {}, [
+          h('div', { class: 'row' }, [
+            h('b', { text: examName(e) }),
+            h('span', { class: 'sub', text: (e.members || []).map(facName).join(', ') }),
+            h('span', { class: 'spacer' }), why
+          ]),
+          considerationText(e) ? h('div', { class: 'sub', style: 'font-style:italic', text: considerationText(e) }) : null
         ]);
       }))
     ]));
@@ -536,7 +553,11 @@ function tabSchedule(body) {
         var isMine = S.me && (x.e.members || []).indexOf(S.me) >= 0;
         return h('tr', {}, [
           h('td', { style: 'white-space:nowrap;width:1%' }, [h('b', { text: fmtTime(x.s.startMin) + ' – ' + fmtTime(x.s.endMin) })]),
-          h('td', {}, [h('b', { text: examName(x.e) }), isMine ? h('span', { class: 'pill ok', style: 'margin-left:.5rem', text: 'yours' }) : null]),
+          h('td', {}, [
+            h('b', { text: examName(x.e) }),
+            isMine ? h('span', { class: 'pill ok', style: 'margin-left:.5rem', text: 'yours' }) : null,
+            considerationText(x.e) ? h('div', { class: 'sub', style: 'font-style:italic', text: considerationText(x.e) }) : null
+          ]),
           h('td', { class: 'sub', text: (x.e.members || []).map(facName).join(', ') })
         ]);
       }))
@@ -706,7 +727,8 @@ function myExamsCard(mine) {
         h('b', { text: examName(e) }),
         h('span', { class: 'spacer' }), status
       ]),
-      h('div', { class: 'sub', text: 'with ' + others })
+      h('div', { class: 'sub', text: 'with ' + others }),
+      considerationText(e) ? h('div', { class: 'sub', style: 'font-style:italic', text: considerationText(e) }) : null
     ]);
   });
   return h('div', { class: 'card' }, [h('h2', { text: 'Your exams' }), h('ul', { class: 'clean' }, rows)]);
@@ -950,5 +972,5 @@ window.CS = { S: S, h: h, $: $, $$: $$, toast: toast, esc: esc, modal: modal, cl
   sha: sha, copyText: copyText, settings: settings, facList: facList, examList: examList, facName: facName,
   examName: examName, submitted: submitted, buildGrid: buildGrid, timeSelect: timeSelect, render: render,
   resolveAndRender: resolveAndRender, debounce: debounce, DEFAULT_SETTINGS: DEFAULT_SETTINGS,
-  setDbUrl: setDbUrl, dbUrl: dbUrl, setMe: setMe, shareLink: shareLink, defaultDay: defaultDay, progressCard: progressCard, pendingCount: pendingCount };
+  setDbUrl: setDbUrl, dbUrl: dbUrl, setMe: setMe, shareLink: shareLink, defaultDay: defaultDay, progressCard: progressCard, pendingCount: pendingCount, considerationText: considerationText };
 })();

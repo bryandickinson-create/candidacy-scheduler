@@ -136,13 +136,19 @@
       free[fid] = f;
     });
 
+    /* A blackout is either a date range {from,to} or a repeating weekday {dow},
+       each optionally narrowed to a time window {fromMin,toMin}. */
     function blockedSlot(e, s) {
       var b = e.blackouts || [];
       for (var i = 0; i < b.length; i++) {
         var x = b[i];
-        if (x.from && s.dayKey < x.from) continue;
-        if (x.to && s.dayKey > x.to) continue;
-        if (!x.from && !x.to) continue;
+        if (x.dow != null) {
+          if (days[s.di].dow !== x.dow) continue;
+        } else {
+          if (!x.from && !x.to) continue;
+          if (x.from && s.dayKey < x.from) continue;
+          if (x.to && s.dayKey > x.to) continue;
+        }
         if (x.fromMin != null && s.endMin <= x.fromMin) continue;
         if (x.toMin != null && s.startMin >= x.toMin) continue;
         return true;

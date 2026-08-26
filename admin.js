@@ -478,7 +478,7 @@ function tabExams(body) {
       h('button', { class: 'btn sm', text: 'Re-import roster…', onclick: importDialog })
     ]),
     h('div', { class: 'tablescroll' }, [h('table', { class: 'data' }, [
-      h('thead', {}, [h('tr', {}, ['Student', 'Committee', 'Constraints', 'Status', ''].map(function (t) { return h('th', { text: t }); }))]),
+      h('thead', {}, [h('tr', {}, ['Student', 'Committee', 'Special considerations', 'Status', ''].map(function (t) { return h('th', { text: t }); }))]),
       h('tbody', {}, exams.map(function (e) {
         var s = res.slotOf[e.id];
         var un = (e.members || []).filter(function (m) { return !c.submitted(m); });
@@ -490,11 +490,13 @@ function tabExams(body) {
           h('td', {}, [h('b', { text: c.examName(e) })]),
           h('td', { class: 'sub', text: (e.members || []).map(c.facName).join(', ') }),
           h('td', { class: 'sub' }, [
-            bl.length ? h('span', { text: bl.map(describeBlackout).join('; ') }) : h('span', { class: 'sub', text: '—' })
+            bl.length ? h('div', { text: bl.map(describeBlackout).join('; ') }) : null,
+            e.note ? h('div', { style: 'font-style:italic;margin-top:.15rem', text: e.note }) : null,
+            (!bl.length && !e.note) ? h('span', { text: '—' }) : null
           ]),
           h('td', {}, [status]),
           h('td', { style: 'white-space:nowrap' }, [
-            h('button', { class: 'btn sm ghost', text: 'Constraints…', onclick: function () { blackoutDialog(e); } }),
+            h('button', { class: 'btn sm ghost', text: 'Considerations…', onclick: function () { blackoutDialog(e); } }),
             h('button', { class: 'btn sm ghost', text: 'Place…', onclick: function () { moveDialog(e); } })
           ])
         ]);
@@ -505,63 +507,119 @@ function tabExams(body) {
 
 function describeBlackout(b) {
   var c = C();
-  var d = b.from === b.to ? c.fmtDay(b.from) : c.fmtDay(b.from) + '–' + c.fmtDay(b.to);
+  var when = b.dow != null
+    ? 'every ' + c.DOWS[b.dow] + 'day'
+    : (b.from === b.to ? c.fmtDay(b.from) : c.fmtDay(b.from) + '–' + c.fmtDay(b.to));
   var t = (b.fromMin != null || b.toMin != null)
-    ? ' ' + c.fmtTime(b.fromMin != null ? b.fromMin : 0) + '–' + c.fmtTime(b.toMin != null ? b.toMin : 1440) : '';
-  return (b.label ? b.label + ': ' : '') + d + t;
+    ? ' ' + c.fmtTime(b.fromMin != null ? b.fromMin : 0) + '–' + c.fmtTime(b.toMin != null ? b.toMin : 1440)
+    : '';
+  return (b.label ? b.label + ': ' : '') + when + t;
 }
 
 function blackoutDialog(e) {
   var c = C(), h = c.h, st = c.settings();
   var list = (e.blackouts || []).slice();
+  var note = e.note || '';
   var listHost = h('div');
+
   function draw() {
     listHost.textContent = '';
-    if (!list.length) listHost.appendChild(h('p', { class: 'sub', text: 'No constraints — any workable window may be used.' }));
+    if (!list.length) {
+      listHost.appendChild(h('p', { class: 'sub', text: 'No constraints — any time all three members are free may be used.' }));
+      return;
+    }
     list.forEach(function (b, i) {
-      listHost.appendChild(h('div', { class: 'row', style: 'padding:.3rem 0;border-bottom:1px solid var(--line)' }, [
+      listHost.appendChild(h('div', { class: 'row', style: 'padding:.35rem 0;border-bottom:1px solid var(--line)' }, [
         h('span', { text: describeBlackout(b) }), h('span', { class: 'spacer' }),
         h('button', { class: 'btn sm danger', text: 'Remove', onclick: function () { list.splice(i, 1); draw(); } })
       ]));
     });
   }
   draw();
-  var body = h('div', {}, [
-    h('p', { class: 'sub', text: 'Times this student cannot sit the exam. The solver treats these as hard blocks.' }),
-    listHost,
-    h('h3', { style: 'margin-top:1rem', text: 'Add a constraint' }),
-    h('label', { class: 'field' }, [h('span', { text: 'Label (optional)' }), h('input', { type: 'text', id: 'bo-label', placeholder: 'e.g. conference travel', style: 'width:100%' })]),
-    h('div', { class: 'row' }, [
-      h('label', { class: 'field' }, [h('span', { text: 'From date' }), h('input', { type: 'date', id: 'bo-a', value: st.startDate, min: st.startDate, max: st.endDate })]),
-      h('label', { class: 'field' }, [h('span', { text: 'To date' }), h('input', { type: 'date', id: 'bo-b', value: st.startDate, min: st.startDate, max: st.endDate })])
-    ]),
-    h('label', { class: 'field' }, [
-      h('span', { text: 'Time of day' }),
-      h('div', { class: 'row' }, [
-        h('label', { class: 'sub' }, [h('input', { type: 'checkbox', id: 'bo-allday', checked: true, onchange: function (ev) {
-          c.$('#bo-t1').disabled = ev.target.checked; c.$('#bo-t2').disabled = ev.target.checked;
-        } }), document.createTextNode(' all day')]),
-        c.timeSelect('bo-t1', st, st.dayStartMin), c.timeSelect('bo-t2', st, st.dayEndMin)
-      ])
-    ])
-  ]);
-  setTimeout(function () { var a = c.$('#bo-t1'), b = c.$('#bo-t2'); if (a) a.disabled = true; if (b) b.disabled = true; }, 0);
 
-  c.modal('Constraints — ' + c.examName(e), body, [
-    { text: 'Add', fn: function () {
+  function syncKind() {
+    var wk = c.$('#bo-kind').value === 'weekday';
+    c.$('#bo-dates').style.display = wk ? 'none' : '';
+    c.$('#bo-weekday').style.display = wk ? '' : 'none';
+  }
+  function syncTimes() {
+    var all = c.$('#bo-allday').checked;
+    c.$('#bo-t1').disabled = all; c.$('#bo-t2').disabled = all;
+  }
+
+  var body = h('div', {}, [
+    h('p', { class: 'sub', text: 'Times this student cannot sit the exam — travel, a class they teach or take, a religious observance, anything else. The scheduler treats these as hard blocks and will not place the exam there.' }),
+    h('h3', { text: 'Current constraints' }),
+    listHost,
+
+    h('h3', { style: 'margin-top:1.2rem', text: 'Add one' }),
+    h('label', { class: 'field' }, [h('span', { text: 'Applies to' }),
+      h('select', { id: 'bo-kind', onchange: syncKind }, [
+        h('option', { value: 'dates', text: 'Specific dates' }),
+        h('option', { value: 'weekday', text: 'A day of the week, every week' })
+      ])]),
+
+    h('div', { id: 'bo-dates', class: 'row' }, [
+      h('label', { class: 'field' }, [h('span', { text: 'From date' }),
+        h('input', { type: 'date', id: 'bo-a', value: st.startDate, min: st.startDate, max: st.endDate })]),
+      h('label', { class: 'field' }, [h('span', { text: 'To date' }),
+        h('input', { type: 'date', id: 'bo-b', value: st.startDate, min: st.startDate, max: st.endDate })])
+    ]),
+    h('div', { id: 'bo-weekday', style: 'display:none' }, [
+      h('label', { class: 'field' }, [h('span', { text: 'Every' }),
+        h('select', { id: 'bo-dow' }, [1, 2, 3, 4, 5].map(function (d) {
+          return h('option', { value: String(d), text: c.DOWS[d] + 'day' });
+        }))])
+    ]),
+
+    h('label', { class: 'field' }, [h('span', { text: 'Time of day' }),
+      h('div', { class: 'row' }, [
+        h('label', { class: 'sub' }, [
+          h('input', { type: 'checkbox', id: 'bo-allday', checked: true, onchange: syncTimes }),
+          document.createTextNode(' all day')
+        ]),
+        c.timeSelect('bo-t1', st, st.dayStartMin), c.timeSelect('bo-t2', st, st.dayEndMin)
+      ])]),
+    h('label', { class: 'field' }, [h('span', { text: 'Reason (optional — shown on the board)' }),
+      h('input', { type: 'text', id: 'bo-label', placeholder: 'e.g. conference travel', style: 'width:100%' })]),
+    h('div', { class: 'row' }, [h('button', { class: 'btn', text: '+ Add this constraint', onclick: addOne })]),
+
+    h('h3', { style: 'margin-top:1.4rem', text: 'Note' }),
+    h('p', { class: 'sub', text: 'Anything the committee should know that is not a hard time constraint. Shown alongside the exam; does not affect scheduling.' }),
+    h('textarea', { id: 'bo-note', style: 'min-height:70px;font-family:inherit;font-size:.9rem',
+      placeholder: 'e.g. joining remotely from Berlin; needs a room with a projector', text: note })
+  ]);
+
+  function addOne() {
+    var rec = {}, kind = c.$('#bo-kind').value;
+    if (kind === 'weekday') {
+      rec.dow = +c.$('#bo-dow').value;
+    } else {
       var a = c.$('#bo-a').value, b = c.$('#bo-b').value;
-      if (!a || !b || b < a) { c.toast('Check the dates'); return true; }
-      var rec = { from: a, to: b, label: c.$('#bo-label').value.trim() };
-      if (!c.$('#bo-allday').checked) { rec.fromMin = +c.$('#bo-t1').value; rec.toMin = +c.$('#bo-t2').value; }
-      list.push(rec); draw();
-      c.$('#bo-label').value = '';
-      return true;
-    } },
+      if (!a || !b) { c.toast('Pick both dates'); return; }
+      if (b < a) { c.toast('The end date is before the start'); return; }
+      rec.from = a; rec.to = b;
+    }
+    if (!c.$('#bo-allday').checked) {
+      var t1 = +c.$('#bo-t1').value, t2 = +c.$('#bo-t2').value;
+      if (t2 <= t1) { c.toast('The end time is before the start'); return; }
+      rec.fromMin = t1; rec.toMin = t2;
+    }
+    var lab = c.$('#bo-label').value.trim();
+    if (lab) rec.label = lab;
+    list.push(rec); draw();
+    c.$('#bo-label').value = '';
+  }
+
+  c.modal('Special considerations — ' + c.examName(e), body, [
     { text: 'Save', primary: true, fn: function () {
-      db().put(root() + '/exams/' + e.id + '/blackouts', list.length ? list : null)
-        .then(function () { c.toast('Saved'); });
+      db().patch(root() + '/exams/' + e.id, {
+        blackouts: list.length ? list : null,
+        note: c.$('#bo-note').value.trim() || null
+      }).then(function () { c.toast('Saved'); });
     } }
   ]);
+  setTimeout(function () { syncKind(); syncTimes(); }, 0);
 }
 
 function importDialog() {
