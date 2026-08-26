@@ -398,6 +398,27 @@ function tabSched(body) {
     h('button', { class: 'btn sm ghost', text: 'Print', onclick: function () { window.print(); } })
   ]));
 
+  if (res.bookingWarnings.length) {
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: 'Bookings that no longer hold (' + res.bookingWarnings.length + ')' }),
+      h('p', { class: 'sub', text: 'These times were booked when they worked. Something changed underneath them — a committee edit, or someone narrowing their availability. They are still booked; nothing was silently moved.' }),
+      h('ul', { class: 'clean' }, res.bookingWarnings.map(function (w) {
+        var e = Object.assign({ id: w.id }, S_.data.exams[w.id]);
+        var bk = res.confirmed[w.id];
+        return h('li', {}, [
+          h('div', { class: 'row' }, [
+            h('b', { text: c.examName(e) }),
+            h('span', { class: 'sub', text: c.fmtDay(bk.dayKey) + ' ' + c.fmtTime(bk.startMin) }),
+            h('span', { class: 'spacer' }),
+            h('button', { class: 'btn sm', text: 'Rebook…', onclick: function () { bookDialog(e); } }),
+            h('button', { class: 'btn sm danger', text: 'Release', onclick: function () { db().put(root() + '/confirmed/' + w.id, null); } })
+          ]),
+          h('div', { class: 'sub', text: c.bookingWarningText(w) })
+        ]);
+      }))
+    ]));
+  }
+
   if (res.bookingConflicts.length) {
     body.appendChild(h('div', { class: 'card' }, [
       h('h2', { text: 'Bookings that no longer fit' }),

@@ -507,10 +507,18 @@ function examStatus(e) {
   return { kind: 'stuck', options: [], squeezed: common > 0, common: common };
 }
 
+function warningFor(id) {
+  var list = (S.res && S.res.bookingWarnings) || [];
+  for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+  return null;
+}
+
 function statusPill(e) {
   var st = examStatus(e);
   if (st.kind === 'confirmed') {
-    return h('span', { class: 'pill ok', text: fmtDay(st.slot.dayKey) + ' · ' + fmtTime(st.slot.startMin) });
+    var w = warningFor(e.id);
+    return h('span', { class: 'pill ' + (w ? 'bad' : 'ok'), title: w ? bookingWarningText(w) : '',
+      text: fmtDay(st.slot.dayKey) + ' · ' + fmtTime(st.slot.startMin) + (w ? ' ⚠' : '') });
   }
   if (st.kind === 'ready') {
     return h('span', { class: 'pill warn', text: st.options.length + ' time' + (st.options.length === 1 ? '' : 's') + ' work — not booked' });
@@ -546,6 +554,17 @@ function progressCard() {
       (n.waiting ? ', ' + n.waiting + ' still waiting on someone' : '') +
       (n.stuck ? ', ' + n.stuck + ' with no workable time' : '') + '.' })
   ]);
+}
+
+/* Why a booking that was fine when it was made no longer holds. */
+function bookingWarningText(w) {
+  var bits = [];
+  if (w.blocked) bits.push('it falls in the student’s blocked time');
+  var never = w.notFree.filter(function (m) { return !submitted(m); });
+  var busy = w.notFree.filter(function (m) { return submitted(m); });
+  if (never.length) bits.push(never.map(facName).join(' and ') + (never.length === 1 ? ' has' : ' have') + ' not submitted availability');
+  if (busy.length) bits.push(busy.map(facName).join(' and ') + (busy.length === 1 ? ' is' : ' are') + ' not free then');
+  return bits.join('; ');
 }
 
 /* A short human summary of an exam's special considerations, for the board. */
@@ -1106,5 +1125,6 @@ window.CS = { S: S, h: h, $: $, $$: $$, toast: toast, esc: esc, modal: modal, cl
   examName: examName, submitted: submitted, buildGrid: buildGrid, timeSelect: timeSelect, render: render,
   resolveAndRender: resolveAndRender, debounce: debounce, DEFAULT_SETTINGS: DEFAULT_SETTINGS,
   setDbUrl: setDbUrl, dbUrl: dbUrl, setMe: setMe, shareLink: shareLink, defaultDay: defaultDay, progressCard: progressCard, pendingCount: pendingCount, considerationText: considerationText,
-  examStatus: examStatus, statusPill: statusPill, orderedOptions: orderedOptions };
+  examStatus: examStatus, statusPill: statusPill, orderedOptions: orderedOptions,
+  bookingWarningText: bookingWarningText, warningFor: warningFor };
 })();

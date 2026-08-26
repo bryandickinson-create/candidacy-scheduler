@@ -253,7 +253,7 @@
 
     /* ---- confirmed bookings are fixed points ---- */
     var confirmedIdx = new Uint8Array(nE);
-    var bookingConflicts = [];
+    var bookingConflicts = [], bookingWarnings = [];
     exams.forEach(function (e, ix) {
       var bk = (input.confirmed || {})[e.id];
       if (!bk) return;
@@ -264,6 +264,16 @@
       if (clash) { bookingConflicts.push({ id: e.id, why: 'double-books ' + clash + ' with another booking' }); return; }
       confirmedIdx[ix] = 1;
       place(ix, sid);
+
+      /* A booking made earlier can be invalidated later — the committee
+         changed, or someone narrowed their availability under it. Keep it (the
+         organiser put it there deliberately) but say so loudly. */
+      var notFree = [];
+      for (var b = 0; b < ms.length; b++) if (!free[ms[b]] || !free[ms[b]][sid]) notFree.push(ms[b]);
+      var blocked = blockedSlot(e, slots[sid]);
+      if (notFree.length || blocked) {
+        bookingWarnings.push({ id: e.id, notFree: notFree, blocked: blocked });
+      }
     });
 
     var openList = [];
@@ -370,7 +380,8 @@
       days: days, slots: slots, cpd: cpd, settings: st, conf: conf,
       free: free, avail: avail, cands: {}, options: options, diag: {},
       confirmed: {}, suggestion: {}, unbookable: [], bookable: [],
-      bookingConflicts: bookingConflicts, slotByKey: slotByKey, rounds: round
+      bookingConflicts: bookingConflicts, bookingWarnings: bookingWarnings,
+      slotByKey: slotByKey, rounds: round
     };
 
     exams.forEach(function (e, ix) {

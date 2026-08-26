@@ -91,7 +91,7 @@ window.ROSTER_SEED = {
       "members": [
         "Weixin Tang",
         "Yamuna Krishnan",
-        "Joseph Piccirilli"
+        "Bryan Dickinson"
       ]
     },
     {
@@ -207,7 +207,7 @@ window.ROSTER_SEED = {
       "first": "Keyi",
       "members": [
         "Jack Szostak",
-        "Bryan Dickinson",
+        "Joseph Piccirilli",
         "Raymond Moellering"
       ]
     },
