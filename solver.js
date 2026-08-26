@@ -251,50 +251,63 @@
       return true;
     }
 
-    /* ---- pinned exams are hard constraints ---- */
-    var lockConflicts = [];
+    /* ---- confirmed bookings are fixed points ---- */
+    var confirmedIdx = new Uint8Array(nE);
+    var bookingConflicts = [];
     exams.forEach(function (e, ix) {
-      var lk = (input.locks || {})[e.id];
-      if (!lk) return;
-      var sid = slotByKey[lk.dayKey + 'T' + lk.startMin];
-      if (sid == null) { lockConflicts.push({ id: e.id, why: 'falls outside the current date/time window' }); return; }
-      var ms = e.members, clash = false;
-      for (var a = 0; a < ms.length; a++) if (busy[ms[a]][sid]) clash = true;
-      if (clash) { lockConflicts.push({ id: e.id, why: 'double-books a member with another pinned exam' }); return; }
-      lockedIdx[ix] = 1;
+      var bk = (input.confirmed || {})[e.id];
+      if (!bk) return;
+      var sid = slotByKey[bk.dayKey + 'T' + bk.startMin];
+      if (sid == null) { bookingConflicts.push({ id: e.id, why: 'falls outside the current date/time window' }); return; }
+      var ms = e.members, clash = null;
+      for (var a = 0; a < ms.length; a++) if (busy[ms[a]][sid]) clash = ms[a];
+      if (clash) { bookingConflicts.push({ id: e.id, why: 'double-books ' + clash + ' with another booking' }); return; }
+      confirmedIdx[ix] = 1;
       place(ix, sid);
     });
 
     var openList = [];
-    for (var oi = 0; oi < nE; oi++) if (!lockedIdx[oi]) openList.push(oi);
+    for (var oi = 0; oi < nE; oi++) if (!confirmedIdx[oi]) openList.push(oi);
 
+    /* ---- what is still bookable, given everything already confirmed ---- */
+    var options = {};
+    openList.forEach(function (ix) {
+      var out = [], list = cands[ix];
+      for (var i = 0; i < list.length; i++) if (fits(ix, list[i])) out.push(list[i]);
+      options[exams[ix].id] = out;
+    });
+
+    /* ---- a proposal for everything still open, so the organiser can see a way
+           to finish rather than booking greedily into a dead end ---- */
     var prevSid = {};
     Object.keys(input.prev || {}).forEach(function (id) {
-      var p = input.prev[id];
-      if (!p) return;
-      var sid = slotByKey[p.dayKey + 'T' + p.startMin];
+      var pv = input.prev[id];
+      if (!pv) return;
+      var sid = slotByKey[pv.dayKey + 'T' + pv.startMin];
       if (sid != null) prevSid[id] = sid;
     });
 
     var deadline = Date.now() + (input.timeBudgetMs || 900);
-    var best = null;
-    var scratch = [];
+    var best = null, scratch = [];
 
     function attempt(rnd, jitter) {
       var bestMiss = best ? best.miss : openList.length + 1;
-      var localAssign = null;
-      var checks = 0;
+      var localAssign = null, checks = 0;
 
       function score(ix, sid) {
-        var s = prevSid[exams[ix].id] === sid ? -1000 : 0;
+        var sc = prevSid[exams[ix].id] === sid ? -1000 : 0;
         var di = slots[sid].di;
-        s += dayCount[di] * 3;
+        // a student's early/late request is a strong steer, never a hard rule
+        var pref = exams[ix].prefer;
+        if (pref === 'early') sc += di * 6;
+        else if (pref === 'late') sc += (nDays - di) * 6;
+        sc += dayCount[di] * 3;
         var ms = exams[ix].members;
         for (var a = 0; a < ms.length; a++) {
           var n = facDay[ms[a]][di];
-          s += n >= 2 ? 60 * n : -2;              // a couple per day is fine; four is not
+          sc += n >= 2 ? 60 * n : -2;
         }
-        return s + jitter * rnd() * 25;
+        return sc + jitter * rnd() * 25;
       }
 
       function dfs(miss) {
@@ -345,25 +358,59 @@
     }
     for (var r2 = 0; r2 < openList.length; r2++) unplace(openList[r2]);
 
-    var finalAssign = best ? best.assign : Array.prototype.slice.call(assign);
+    var proposal = best ? best.assign : null;
+
+    /* ---- assemble ---- */
+    function slotInfo(sid, locked) {
+      var sl = slots[sid];
+      return { dayKey: sl.dayKey, startMin: sl.startMin, endMin: sl.endMin, slotId: sid, confirmed: !!locked };
+    }
 
     var res = {
-      slotOf: {}, unscheduled: [], days: days, slots: slots, cpd: cpd, settings: st,
-      lockConflicts: lockConflicts, diag: {}, free: free, avail: avail, cands: {},
-      slotByKey: slotByKey, rounds: round
+      days: days, slots: slots, cpd: cpd, settings: st, conf: conf,
+      free: free, avail: avail, cands: {}, options: options, diag: {},
+      confirmed: {}, suggestion: {}, unbookable: [], bookable: [],
+      bookingConflicts: bookingConflicts, slotByKey: slotByKey, rounds: round
     };
+
     exams.forEach(function (e, ix) {
       res.diag[e.id] = diag[ix];
       res.cands[e.id] = cands[ix];
-      var sid = finalAssign[ix];
-      if (sid != null && sid >= 0) {
-        var s = slots[sid];
-        res.slotOf[e.id] = { dayKey: s.dayKey, startMin: s.startMin, endMin: s.endMin, slotId: sid, locked: !!lockedIdx[ix] };
-      } else {
-        res.unscheduled.push(e.id);
+      if (confirmedIdx[ix]) {
+        res.confirmed[e.id] = slotInfo(assignOf(e.id, input, slotByKey), true);
+        return;
       }
+      var opts = options[e.id] || [];
+      if (opts.length) res.bookable.push(e.id); else res.unbookable.push(e.id);
+      if (proposal && proposal[ix] != null && proposal[ix] >= 0) res.suggestion[e.id] = slotInfo(proposal[ix], false);
     });
     return res;
+  }
+
+  function assignOf(id, input, slotByKey) {
+    var bk = input.confirmed[id];
+    return slotByKey[bk.dayKey + 'T' + bk.startMin];
+  }
+
+  /* Which other exams would be left with no workable time if `eid` were booked
+     into `sid`. Only exams sharing a member can be affected. */
+  function bookingImpact(res, exams, eid, sid) {
+    var target = null, hit = [];
+    exams.forEach(function (e) { if (e.id === eid) target = e; });
+    if (!target) return hit;
+    var blocked = {};
+    (res.conf[sid] || []).forEach(function (t) { blocked[t] = 1; });
+    exams.forEach(function (e) {
+      if (e.id === eid || res.confirmed[e.id]) return;
+      var shares = (e.members || []).some(function (m) { return (target.members || []).indexOf(m) >= 0; });
+      if (!shares) return;
+      var opts = res.options[e.id] || [];
+      if (!opts.length) return;                       // already stuck; not our doing
+      var left = 0;
+      for (var i = 0; i < opts.length; i++) if (!blocked[opts[i]]) left++;
+      if (!left) hit.push(e.id);
+    });
+    return hit;
   }
 
   /* Cells this person currently has blocked that would, on their own, open up a
@@ -407,6 +454,7 @@
     CELL: CELL, ymd: ymd, parseYmd: parseYmd,
     buildDays: buildDays, buildSlots: buildSlots, cellsPerDay: cellsPerDay,
     decodeAvail: decodeAvail, countOffered: countOffered,
-    solve: solve, helperCells: helperCells, freeMaskFrom: freeMaskFrom, hashStr: hashStr
+    solve: solve, helperCells: helperCells, freeMaskFrom: freeMaskFrom,
+    bookingImpact: bookingImpact, hashStr: hashStr
   };
 })();

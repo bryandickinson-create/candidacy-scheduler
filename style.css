@@ -63,6 +63,9 @@ button{font:inherit}
 /* ---- progress ---- */
 .progress{height:12px;border-radius:99px;background:var(--busy);overflow:hidden;border:1px solid var(--line)}
 .progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--free-2),var(--ok));transition:width .5s ease}
+.progress.stacked{display:flex}
+.progress.stacked > u{display:block;height:100%;background:repeating-linear-gradient(45deg,var(--free),var(--free) 4px,transparent 4px,transparent 8px);transition:width .5s ease}
+.bigstat b.accentnum{color:var(--accent)}
 .bigstat{display:flex;gap:24px;flex-wrap:wrap;align-items:baseline}
 .bigstat b{font-size:2rem;font-weight:700;letter-spacing:-.02em;display:block}
 .bigstat span{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}

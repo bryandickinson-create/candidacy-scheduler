@@ -92,7 +92,8 @@ var DEFAULT_SETTINGS = {
 
 var S = {
   db: null, root: '', eventId: '2026',
-  data: { meta: null, settings: null, faculty: {}, exams: {}, avail: {}, locks: {}, board: null },
+  data: { meta: null, settings: null, faculty: {}, exams: {}, avail: {}, confirmed: {} },
+  prevSuggestion: {},
   role: null,        // 'admin' | 'board'
   ptab: 'me',        // board tab: me | schedule | people
   me: null,          // faculty id when role==='faculty'
@@ -146,7 +147,7 @@ function submitted(fid) { var a = S.data.avail[fid]; return !!(a && a.submitted)
 function currentSolve() {
   var st = settings();
   var exams = examList().map(function (e) {
-    return { id: e.id, members: e.members || [], blackouts: e.blackouts || [] };
+    return { id: e.id, members: e.members || [], blackouts: e.blackouts || [], prefer: e.prefer || null };
   });
   // Faculty who have not submitted are treated as having no availability, so a
   // schedule is never invented on their behalf.
@@ -155,8 +156,8 @@ function currentSolve() {
     var a = S.data.avail[fid];
     if (a && a.submitted && a.days) avail[fid] = a.days;
   });
-  var prev = (S.data.board && S.data.board.slotOf) || {};
-  return Solver.solve({ settings: st, exams: exams, avail: avail, locks: S.data.locks || {}, prev: prev, timeBudgetMs: 900 });
+  return Solver.solve({ settings: st, exams: exams, avail: avail,
+    confirmed: S.data.confirmed || {}, prev: S.prevSuggestion || {}, timeBudgetMs: 900 });
 }
 
 function inputHash() {
@@ -167,7 +168,7 @@ function inputHash() {
     var a = S.data.avail[f];
     if (a && a.submitted) parts.push('A' + f + ':' + JSON.stringify(a.days || {}));
   });
-  Object.keys(S.data.locks || {}).sort().forEach(function (k) { parts.push('L' + k + ':' + JSON.stringify(S.data.locks[k])); });
+  Object.keys(S.data.confirmed || {}).sort().forEach(function (k) { parts.push('C' + k + ':' + JSON.stringify(S.data.confirmed[k])); });
   return Solver.hashStr(parts.join('|')).toString(36);
 }
 
@@ -180,55 +181,19 @@ function pendingCount() {
   return n;
 }
 
-var publishTimer = null;
-function resolveAndRender(publish) {
+/* Nothing to publish any more. A booking is only real once the organiser
+   confirms it, and confirmations live in the database, so every browser derives
+   the same board from the same data. The solver's proposal is advisory and
+   never written. */
+function resolveAndRender() {
   if (!S.loaded) return;
-  var sig = inputHash();
-  lastSig = sig;
+  lastSig = inputHash();
   S.res = currentSolve();
-  adoptBoard(sig);
+  S.prevSuggestion = S.res.suggestion;      // keeps proposals stable between renders
   render();
-  if (publish !== false) schedulePublish();
 }
 
-/* The solver is deterministic, but two browsers can start from different
-   previous boards and land on equally valid, different answers. Whichever one
-   was published first wins, so everybody is looking at the same schedule. */
-function adoptBoard(sig) {
-  var b = S.data.board;
-  if (!b || b.hash !== sig || !b.slotOf) return;
-  var exams = S.data.exams || {}, slotOf = {}, unscheduled = [];
-  Object.keys(b.slotOf).forEach(function (id) {
-    if (exams[id] && b.slotOf[id] && b.slotOf[id].slotId != null) slotOf[id] = b.slotOf[id];
-  });
-  Object.keys(exams).forEach(function (id) { if (!slotOf[id]) unscheduled.push(id); });
-  // Only trust the board if it is at least as good as what we just computed.
-  if (Object.keys(slotOf).length < Object.keys(S.res.slotOf).length) return;
-  S.res.slotOf = slotOf;
-  S.res.unscheduled = unscheduled;
-}
-
-function schedulePublish() {
-  clearTimeout(publishTimer);
-  var jitter = 400 + Math.random() * 2200;   // stagger writes across open browsers
-  publishTimer = setTimeout(publishBoard, jitter);
-}
-
-function publishBoard() {
-  if (!S.db || !S.res) return;
-  var hash = inputHash();
-  var board = S.data.board;
-  if (board && board.hash === hash) return;                 // already up to date
-  var count = Object.keys(S.res.slotOf).length;
-  if (board && board.hash !== hash) { /* stale — replace */ }
-  var payload = {
-    hash: hash, at: Date.now(), count: count,
-    slotOf: S.res.slotOf,
-    unscheduled: S.res.unscheduled
-  };
-  S.db.put(S.root + '/board', payload).catch(function (e) { console.warn('publish failed', e); });
-}
-
+/* The one link everyone opens. */
 function shareLink() {
   return location.origin + location.pathname + '#/people';
 }
@@ -245,7 +210,7 @@ function connect() {
   S.db.get(S.root).then(function (data) {
     ingest(data || {});
     S.loaded = true;
-    resolveAndRender(false);
+    resolveAndRender();
     startStream();
     watchVisibility();
   }).catch(function (e) {
@@ -301,8 +266,7 @@ function ingest(data) {
   S.data.faculty = data.faculty || {};
   S.data.exams = data.exams || {};
   S.data.avail = data.avail || {};
-  S.data.locks = data.locks || {};
-  S.data.board = data.board || null;
+  S.data.confirmed = data.confirmed || {};
 }
 
 var lastSig = null;
@@ -313,7 +277,7 @@ var rerender = debounce(function again() {
   var sig = inputHash();
   if (sig === lastSig) return;
   lastSig = sig;
-  resolveAndRender(true);
+  resolveAndRender();
 }, 250);
 
 /* Firebase's free tier allows 100 simultaneous connections. Nobody needs a live
@@ -333,7 +297,7 @@ function watchVisibility() {
     S.db.get(S.root).then(function (data) {
       ingest(data || {});
       startStream();
-      resolveAndRender(false);
+      resolveAndRender();
     }).catch(function () { startStream(); });
   });
 }
@@ -343,7 +307,7 @@ function startStream() {
   S.stream = S.db.stream(S.root, function (ev) {
     var tree = {
       meta: S.data.meta, settings: S.data.settings, faculty: S.data.faculty,
-      exams: S.data.exams, avail: S.data.avail, locks: S.data.locks, board: S.data.board
+      exams: S.data.exams, avail: S.data.avail, confirmed: S.data.confirmed
     };
     var next = FB.applyEvent(tree, ev);
     ingest(next || {});
@@ -450,22 +414,62 @@ function topbar() {
   ]);
 }
 
+/* The single source of truth for how an exam is doing.
+     confirmed — a time is booked
+     ready     — at least one time works for all three, right now
+     waiting   — someone on the committee has not submitted
+     stuck     — everyone submitted and nothing works, or everything that worked
+                 has been taken by another booking */
+function examStatus(e) {
+  var res = S.res;
+  var bk = res.confirmed[e.id];
+  if (bk) return { kind: 'confirmed', slot: bk };
+  var missing = (e.members || []).filter(function (m) { return !submitted(m); });
+  var opts = res.options[e.id] || [];
+  if (opts.length) return { kind: 'ready', options: opts, missing: missing };
+  if (missing.length) return { kind: 'waiting', missing: missing };
+  var common = (res.diag[e.id] || {}).common || 0;
+  return { kind: 'stuck', options: [], squeezed: common > 0, common: common };
+}
+
+function statusPill(e) {
+  var st = examStatus(e);
+  if (st.kind === 'confirmed') {
+    return h('span', { class: 'pill ok', text: fmtDay(st.slot.dayKey) + ' · ' + fmtTime(st.slot.startMin) });
+  }
+  if (st.kind === 'ready') {
+    return h('span', { class: 'pill warn', text: st.options.length + ' time' + (st.options.length === 1 ? '' : 's') + ' work — not booked' });
+  }
+  if (st.kind === 'waiting') {
+    return h('span', { class: 'pill mute', text: 'waiting on ' + st.missing.map(function (m) { return m === S.me ? 'you' : facName(m); }).join(', ') });
+  }
+  return h('span', { class: 'pill bad', text: st.squeezed ? 'all workable times taken' : 'no time works for all three' });
+}
+
 function progressCard() {
   var exams = examList(), total = exams.length;
-  var done = S.res ? Object.keys(S.res.slotOf).length : 0;
-  var pend = pendingCount();
-  var stuck = total - done - 0;
-  var pct = total ? Math.round(done / total * 100) : 0;
+  var n = { confirmed: 0, ready: 0, waiting: 0, stuck: 0 };
+  exams.forEach(function (e) { n[examStatus(e).kind]++; });
+  var pct = total ? Math.round(n.confirmed / total * 100) : 0;
+  var readyPct = total ? Math.round((n.confirmed + n.ready) / total * 100) : 0;
   var facs = facList(), sub = facs.filter(function (f) { return submitted(f.id); }).length;
+
   return h('div', { class: 'card' }, [
     h('div', { class: 'bigstat' }, [
-      h('div', {}, [h('b', { text: done + ' / ' + total }), h('span', { text: 'exams scheduled' })]),
-      h('div', {}, [h('b', { text: String(total - done) }), h('span', { text: 'still open' })]),
+      h('div', {}, [h('b', { text: n.confirmed + ' / ' + total }), h('span', { text: 'exams booked' })]),
+      h('div', {}, [h('b', { class: n.ready ? 'accentnum' : '', text: String(n.ready) }), h('span', { text: 'ready to book' })]),
+      h('div', {}, [h('b', { text: String(n.waiting) }), h('span', { text: 'waiting on a reply' })]),
+      h('div', {}, [h('b', { text: String(n.stuck) }), h('span', { text: 'no time works' })]),
       h('div', {}, [h('b', { text: sub + ' / ' + facs.length }), h('span', { text: 'faculty submitted' })])
     ]),
-    h('div', { class: 'progress', style: 'margin-top:12px' }, [h('i', { style: 'width:' + pct + '%' })]),
-    pend ? h('p', { class: 'sub', style: 'margin:.6rem 0 0',
-      text: pend + ' exam' + (pend === 1 ? '' : 's') + ' can’t be placed yet because a committee member hasn’t submitted availability.' }) : null
+    h('div', { class: 'progress stacked', style: 'margin-top:12px' }, [
+      h('i', { style: 'width:' + pct + '%' }),
+      h('u', { style: 'width:' + Math.max(0, readyPct - pct) + '%' })
+    ]),
+    h('p', { class: 'sub', style: 'margin:.5rem 0 0', text:
+      n.confirmed + ' booked' + (n.ready ? ', ' + n.ready + ' more could be booked now' : '') +
+      (n.waiting ? ', ' + n.waiting + ' still waiting on someone' : '') +
+      (n.stuck ? ', ' + n.stuck + ' with no workable time' : '') + '.' })
   ]);
 }
 
@@ -479,6 +483,7 @@ function considerationText(e) {
       ? ' ' + fmtTime(b.fromMin != null ? b.fromMin : 0) + '–' + fmtTime(b.toMin != null ? b.toMin : 1440) : '';
     return (b.label ? b.label + ' (' + when + t + ')' : when + t);
   });
+  if (e.prefer) out.push(e.prefer === 'late' ? 'prefers late in the period' : 'prefers early in the period');
   if (e.note) out.push(e.note);
   return out.join(' · ');
 }
@@ -494,7 +499,7 @@ function boardView(wrap) {
   wrap.appendChild(h('div', { class: 'tabs' }, PTABS.map(function (t) {
     var label = t[1];
     if (t[0] === 'me' && S.me) {
-      var mine = myExams(), placed = mine.filter(function (e) { return S.res.slotOf[e.id]; }).length;
+      var mine = myExams(), placed = mine.filter(function (e) { return S.res.confirmed[e.id]; }).length;
       label = 'My availability';
       if (mine.length) label += ' (' + placed + '/' + mine.length + ')';
     }
@@ -510,29 +515,63 @@ function boardView(wrap) {
 /* ---------------------------------------------------------- tab: schedule */
 
 function tabSchedule(body) {
-  var res = S.res, exams = examList();
-  var byDay = {}, stuck = [];
-  exams.forEach(function (e) {
-    var sl = res.slotOf[e.id];
-    if (!sl) { stuck.push(e); return; }
-    (byDay[sl.dayKey] = byDay[sl.dayKey] || []).push({ e: e, s: sl });
-  });
-  var dayKeys = Object.keys(byDay).sort();
+  var exams = examList();
+  var groups = { confirmed: [], ready: [], waiting: [], stuck: [] };
+  exams.forEach(function (e) { groups[examStatus(e).kind].push(e); });
 
-  if (stuck.length) {
+  /* --- booked --- */
+  if (groups.confirmed.length) {
+    var byDay = {};
+    groups.confirmed.forEach(function (e) {
+      var sl = S.res.confirmed[e.id];
+      (byDay[sl.dayKey] = byDay[sl.dayKey] || []).push({ e: e, s: sl });
+    });
+    var card = h('div', { class: 'card' }, [
+      h('h2', { text: 'Booked (' + groups.confirmed.length + ')' }),
+      h('p', { class: 'sub', text: 'These times are fixed. Put them in your calendar.' })
+    ]);
+    Object.keys(byDay).sort().forEach(function (k) {
+      var list = byDay[k].sort(function (a, b) { return a.s.startMin - b.s.startMin; });
+      card.appendChild(h('h3', { style: 'margin:1.1rem 0 .3rem;color:var(--muted)', text: fmtDayLong(k) }));
+      card.appendChild(h('table', { class: 'data', style: 'width:100%' }, [
+        h('tbody', {}, list.map(function (x) {
+          var isMine = S.me && (x.e.members || []).indexOf(S.me) >= 0;
+          return h('tr', {}, [
+            h('td', { style: 'white-space:nowrap;width:1%' }, [h('b', { text: fmtTime(x.s.startMin) + ' – ' + fmtTime(x.s.endMin) })]),
+            h('td', {}, [
+              h('b', { text: examName(x.e) }),
+              isMine ? h('span', { class: 'pill ok', style: 'margin-left:.5rem', text: 'yours' }) : null,
+              considerationText(x.e) ? h('div', { class: 'sub', style: 'font-style:italic', text: considerationText(x.e) }) : null
+            ]),
+            h('td', { class: 'sub', text: (x.e.members || []).map(facName).join(', ') })
+          ]);
+        }))
+      ]));
+    });
+    body.appendChild(card);
+  }
+
+  /* --- could be booked now --- */
+  if (groups.ready.length) {
     body.appendChild(h('div', { class: 'card' }, [
-      h('h2', { text: 'Not scheduled yet (' + stuck.length + ')' }),
-      h('ul', { class: 'clean' }, stuck.map(function (e) {
-        var un = (e.members || []).filter(function (m) { return !submitted(m); });
-        var why = un.length ? h('span', { class: 'pill mute', text: 'waiting on ' + un.map(facName).join(', ') })
-          : (res.diag[e.id] && res.diag[e.id].common === 0)
-            ? h('span', { class: 'pill bad', text: 'no time works for all three' })
-            : h('span', { class: 'pill warn', text: 'every workable time is taken' });
+      h('h2', { text: 'Ready to book (' + groups.ready.length + ')' }),
+      h('p', { class: 'sub', text: 'All three members are free at these times. The organiser picks one and confirms it — nothing here is fixed yet.' }),
+      h('ul', { class: 'clean' }, groups.ready.map(function (e) {
+        var opts = (S.res.options[e.id] || []);
+        var shown = orderedOptions(e, opts).slice(0, 4);
         return h('li', {}, [
           h('div', { class: 'row' }, [
             h('b', { text: examName(e) }),
-            h('span', { class: 'sub', text: (e.members || []).map(facName).join(', ') }),
-            h('span', { class: 'spacer' }), why
+            mineTag(e),
+            h('span', { class: 'spacer' }),
+            h('span', { class: 'pill warn', text: opts.length + ' possible time' + (opts.length === 1 ? '' : 's') })
+          ]),
+          h('div', { class: 'sub', text: (e.members || []).map(facName).join(', ') }),
+          h('div', { class: 'sub', style: 'margin-top:.15rem' }, [
+            document.createTextNode('e.g. ' + shown.map(function (sid) {
+              var sl = S.res.slots[sid];
+              return fmtDay(sl.dayKey) + ' ' + fmtTime(sl.startMin);
+            }).join(' · ') + (opts.length > shown.length ? ' …' : ''))
           ]),
           considerationText(e) ? h('div', { class: 'sub', style: 'font-style:italic', text: considerationText(e) }) : null
         ]);
@@ -540,31 +579,42 @@ function tabSchedule(body) {
     ]));
   }
 
-  if (!dayKeys.length) {
-    body.appendChild(h('div', { class: 'card empty', text: 'Nothing is scheduled yet — the board fills in as people submit.' }));
-    return;
-  }
-
-  var card = h('div', { class: 'card' }, [h('h2', { text: 'Scheduled (' + (exams.length - stuck.length) + ')' })]);
-  dayKeys.forEach(function (k) {
-    var list = byDay[k].sort(function (a, b) { return a.s.startMin - b.s.startMin; });
-    card.appendChild(h('h3', { style: 'margin:1.1rem 0 .3rem;color:var(--muted)', text: fmtDayLong(k) }));
-    card.appendChild(h('table', { class: 'data', style: 'width:100%' }, [
-      h('tbody', {}, list.map(function (x) {
-        var isMine = S.me && (x.e.members || []).indexOf(S.me) >= 0;
-        return h('tr', {}, [
-          h('td', { style: 'white-space:nowrap;width:1%' }, [h('b', { text: fmtTime(x.s.startMin) + ' – ' + fmtTime(x.s.endMin) })]),
-          h('td', {}, [
-            h('b', { text: examName(x.e) }),
-            isMine ? h('span', { class: 'pill ok', style: 'margin-left:.5rem', text: 'yours' }) : null,
-            considerationText(x.e) ? h('div', { class: 'sub', style: 'font-style:italic', text: considerationText(x.e) }) : null
+  /* --- blocked --- */
+  var blocked = groups.waiting.concat(groups.stuck);
+  if (blocked.length) {
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: 'Not bookable yet (' + blocked.length + ')' }),
+      h('ul', { class: 'clean' }, blocked.map(function (e) {
+        return h('li', {}, [
+          h('div', { class: 'row' }, [
+            h('b', { text: examName(e) }), mineTag(e),
+            h('span', { class: 'sub', text: (e.members || []).map(facName).join(', ') }),
+            h('span', { class: 'spacer' }), statusPill(e)
           ]),
-          h('td', { class: 'sub', text: (x.e.members || []).map(facName).join(', ') })
+          considerationText(e) ? h('div', { class: 'sub', style: 'font-style:italic', text: considerationText(e) }) : null
         ]);
       }))
     ]));
+  }
+
+  if (!exams.length) body.appendChild(h('div', { class: 'card empty', text: 'No exams yet.' }));
+}
+
+function mineTag(e) {
+  return (S.me && (e.members || []).indexOf(S.me) >= 0)
+    ? h('span', { class: 'pill ok', text: 'yours' }) : null;
+}
+
+/* Option ordering honours the student's stated preference. */
+function orderedOptions(e, opts) {
+  var slots = S.res.slots, out = opts.slice();
+  out.sort(function (a, b) {
+    var A = slots[a], B = slots[b];
+    if (A.dayKey !== B.dayKey) return A.dayKey < B.dayKey ? -1 : 1;
+    return A.startMin - B.startMin;
   });
-  body.appendChild(card);
+  if (e.prefer === 'late') out.reverse();
+  return out;
 }
 
 /* ----------------------------------------------------------- tab: faculty */
@@ -595,7 +645,7 @@ function tabPeople(body) {
     });
     var pct = totalCells ? Math.round(open / totalCells * 100) : 0;
     var mine = examList().filter(function (e) { return (e.members || []).indexOf(f.id) >= 0; });
-    var placed = mine.filter(function (e) { return res.slotOf[e.id]; }).length;
+    var placed = mine.filter(function (e) { return res.confirmed[e.id]; }).length;
     var isMe = f.id === S.me;
     return h('tr', { dataset: { name: f.name.toLowerCase() }, style: isMe ? 'background:color-mix(in srgb,var(--ok) 10%,transparent)' : '' }, [
       h('td', {}, [h('b', { text: f.name }), isMe ? h('span', { class: 'sub', text: '  (you)' }) : null]),
@@ -675,7 +725,8 @@ function tabMe(wrap) {
     days.forEach(function (d) { localGrid[d.key] = curDay(d.key); });
     var myFree = Solver.freeMaskFrom(S.res, localGrid);
     mine.forEach(function (e) {
-      if (S.res.slotOf[e.id]) return;
+      var stx = examStatus(e);
+      if (stx.kind !== 'stuck') return;
       if ((e.members || []).some(function (m) { return m !== S.me && !submitted(m); })) return;
       var cells = Solver.helperCells(S.res, { id: e.id, members: e.members, blackouts: e.blackouts || [] }, S.me, myFree);
       Object.keys(cells).forEach(function (c) { help[c] = 1; helpFor[c] = examName(e); });
@@ -713,26 +764,19 @@ function tabMe(wrap) {
 function myExamsCard(mine) {
   if (!mine.length) return h('div', { class: 'card' }, [h('p', { class: 'sub', text: 'You are not listed on any committee. If that is wrong, contact the organiser.' })]);
   var rows = mine.map(function (e) {
-    var s = S.res.slotOf[e.id];
     var others = (e.members || []).filter(function (m) { return m !== S.me; }).map(facName).join(', ');
-    var waiting = (e.members || []).filter(function (m) { return !submitted(m); })
-      .sort(function (a, b) { return (a === S.me ? -1 : 0) - (b === S.me ? -1 : 0); })
-      .map(function (m) { return m === S.me ? 'you' : facName(m); });
-    var status;
-    if (s) status = h('span', { class: 'pill ok', text: fmtDay(s.dayKey) + ' · ' + fmtTime(s.startMin) + '–' + fmtTime(s.endMin) });
-    else if (waiting.length) status = h('span', { class: 'pill mute', text: 'waiting on ' + waiting.join(', ') });
-    else if (S.res.diag[e.id] && S.res.diag[e.id].common === 0) status = h('span', { class: 'pill bad', text: 'no time works for all three' });
-    else status = h('span', { class: 'pill warn', text: 'not placed yet' });
     return h('li', {}, [
-      h('div', { class: 'row' }, [
-        h('b', { text: examName(e) }),
-        h('span', { class: 'spacer' }), status
-      ]),
+      h('div', { class: 'row' }, [h('b', { text: examName(e) }), h('span', { class: 'spacer' }), statusPill(e)]),
       h('div', { class: 'sub', text: 'with ' + others }),
       considerationText(e) ? h('div', { class: 'sub', style: 'font-style:italic', text: considerationText(e) }) : null
     ]);
   });
-  return h('div', { class: 'card' }, [h('h2', { text: 'Your exams' }), h('ul', { class: 'clean' }, rows)]);
+  var booked = mine.filter(function (e) { return S.res.confirmed[e.id]; }).length;
+  return h('div', { class: 'card' }, [
+    h('h2', { text: 'Your exams' }),
+    h('p', { class: 'sub', text: booked + ' of ' + mine.length + ' booked. A time is only fixed once it shows a date — everything else is still moving.' }),
+    h('ul', { class: 'clean' }, rows)
+  ]);
 }
 
 /* -------------------------------------------------- availability grid draw */
@@ -765,7 +809,7 @@ function buildGrid(days, cpd, st, help, editable) {
   var myAssigned = {};
   if (S.role === 'faculty') {
     myExams().forEach(function (e) {
-      var s = S.res.slotOf[e.id]; if (!s) return;
+      var s = S.res.confirmed[e.id]; if (!s) return;
       var slot = S.res.slots[s.slotId];
       slot.cells.forEach(function (c, i) { myAssigned[c] = i === 0 ? examName(e) : ''; });
     });
@@ -973,5 +1017,6 @@ window.CS = { S: S, h: h, $: $, $$: $$, toast: toast, esc: esc, modal: modal, cl
   sha: sha, copyText: copyText, settings: settings, facList: facList, examList: examList, facName: facName,
   examName: examName, submitted: submitted, buildGrid: buildGrid, timeSelect: timeSelect, render: render,
   resolveAndRender: resolveAndRender, debounce: debounce, DEFAULT_SETTINGS: DEFAULT_SETTINGS,
-  setDbUrl: setDbUrl, dbUrl: dbUrl, setMe: setMe, shareLink: shareLink, defaultDay: defaultDay, progressCard: progressCard, pendingCount: pendingCount, considerationText: considerationText };
+  setDbUrl: setDbUrl, dbUrl: dbUrl, setMe: setMe, shareLink: shareLink, defaultDay: defaultDay, progressCard: progressCard, pendingCount: pendingCount, considerationText: considerationText,
+  examStatus: examStatus, statusPill: statusPill, orderedOptions: orderedOptions };
 })();

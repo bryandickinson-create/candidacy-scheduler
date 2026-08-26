@@ -199,11 +199,11 @@ function tabDash(body) {
   var exams = c.examList();
   var waiting = [], impossible = [], contention = [];
   exams.forEach(function (e) {
-    if (res.slotOf[e.id]) return;
-    var un = (e.members || []).filter(function (m) { return !c.submitted(m); });
-    if (un.length) waiting.push({ e: e, who: un });
-    else if (res.diag[e.id] && res.diag[e.id].common === 0) impossible.push(e);
-    else contention.push(e);
+    var st = c.examStatus(e);
+    if (st.kind === 'confirmed' || st.kind === 'ready') return;
+    if (st.kind === 'waiting') waiting.push({ e: e, who: st.missing });
+    else if (st.squeezed) contention.push(e);
+    else impossible.push(e);
   });
 
   var nudge = {};
@@ -261,7 +261,7 @@ function tabDash(body) {
         return h('li', { class: 'row' }, [h('b', { text: c.examName(e) }),
           h('span', { class: 'sub', text: (res.diag[e.id].common) + ' common window' + (res.diag[e.id].common === 1 ? '' : 's') + ', all occupied' }),
           h('span', { class: 'spacer' }),
-          h('button', { class: 'btn sm', text: 'Place by hand…', onclick: function () { moveDialog(e); } })]);
+          h('button', { class: 'btn sm', text: 'Book…', onclick: function () { bookDialog(e); } })]);
       }))
     ]));
   }
@@ -293,7 +293,7 @@ function facTable(facs) {
     if (a && a.days) res.days.forEach(function (d) { var s = a.days[d.key] || ''; for (var i = 0; i < s.length; i++) if (s[i] === '1') open++; });
     var pct = total ? Math.round(open / total * 100) : 0;
     var mine = c.examList().filter(function (e) { return (e.members || []).indexOf(f.id) >= 0; });
-    var placed = mine.filter(function (e) { return res.slotOf[e.id]; }).length;
+    var placed = mine.filter(function (e) { return res.confirmed[e.id]; }).length;
     return h('tr', {}, [
       h('td', {}, [h('b', { text: f.name })]),
       h('td', {}, [c.submitted(f.id) ? h('span', { class: 'pill ok', text: 'submitted' }) : h('span', { class: 'pill bad', text: 'no reply' })]),
@@ -363,108 +363,205 @@ function bulkMail(list, title) {
 function tabSched(body) {
   var c = C(), h = c.h, S_ = S(), res = S_.res;
   var exams = c.examList();
-  var byDay = {};
-  exams.forEach(function (e) {
-    var s = res.slotOf[e.id]; if (!s) return;
-    (byDay[s.dayKey] = byDay[s.dayKey] || []).push({ e: e, s: s });
-  });
-  var dayKeys = Object.keys(byDay).sort();
+  var groups = { confirmed: [], ready: [], waiting: [], stuck: [] };
+  exams.forEach(function (e) { groups[c.examStatus(e).kind].push(e); });
 
   body.appendChild(h('div', { class: 'card row' }, [
-    h('h2', { text: 'Schedule', style: 'margin:0' }),
-    h('span', { class: 'sub', text: Object.keys(res.slotOf).length + ' placed on ' + dayKeys.length + ' days' }),
+    h('h2', { text: 'Booking', style: 'margin:0' }),
+    h('span', { class: 'sub', text: groups.confirmed.length + ' booked · ' + groups.ready.length + ' ready · ' +
+      (groups.waiting.length + groups.stuck.length) + ' blocked' }),
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn sm', text: 'Pin everything', onclick: pinAll }),
-    h('button', { class: 'btn sm', text: 'Unpin everything', onclick: function () { db().put(root() + '/locks', null).then(function () { c.toast('All unpinned'); }); } }),
+    groups.ready.length ? h('button', { class: 'btn sm primary', text: 'Suggest times for all ' + groups.ready.length + '…', onclick: suggestDialog }) : null,
     h('button', { class: 'btn sm', text: 'Export CSV', onclick: exportCsv }),
     h('button', { class: 'btn sm', text: 'Export calendar (.ics)', onclick: exportIcs }),
     h('button', { class: 'btn sm ghost', text: 'Print', onclick: function () { window.print(); } })
   ]));
 
-  if (res.lockConflicts.length) {
+  if (res.bookingConflicts.length) {
     body.appendChild(h('div', { class: 'card' }, [
-      h('h2', { text: 'Pinned exams that no longer fit' }),
-      h('ul', { class: 'clean' }, res.lockConflicts.map(function (lc) {
-        var e = S_.data.exams[lc.id] || {};
-        return h('li', { class: 'row' }, [h('b', { text: c.examName(Object.assign({ id: lc.id }, e)) }),
-          h('span', { class: 'sub', text: lc.why }), h('span', { class: 'spacer' }),
-          h('button', { class: 'btn sm danger', text: 'Unpin', onclick: function () { db().put(root() + '/locks/' + lc.id, null); } })]);
+      h('h2', { text: 'Bookings that no longer fit' }),
+      h('p', { class: 'sub', text: 'The window or the roster changed underneath these.' }),
+      h('ul', { class: 'clean' }, res.bookingConflicts.map(function (bc) {
+        var e = S_.data.exams[bc.id] || {};
+        return h('li', { class: 'row' }, [
+          h('b', { text: c.examName(Object.assign({ id: bc.id }, e)) }),
+          h('span', { class: 'sub', text: bc.why }), h('span', { class: 'spacer' }),
+          h('button', { class: 'btn sm danger', text: 'Release', onclick: function () { db().put(root() + '/confirmed/' + bc.id, null); } })
+        ]);
       }))
     ]));
   }
 
-  if (!dayKeys.length) { body.appendChild(h('div', { class: 'card empty', text: 'Nothing is scheduled yet.' })); return; }
-
-  dayKeys.forEach(function (k) {
-    var list = byDay[k].sort(function (a, b) { return a.s.startMin - b.s.startMin; });
+  /* ---- ready to book: the working queue ---- */
+  if (groups.ready.length) {
+    var rows = groups.ready.slice().sort(function (a, b) {
+      return (res.options[a.id] || []).length - (res.options[b.id] || []).length;
+    }).map(function (e) {
+      var opts = res.options[e.id] || [];
+      var tight = opts.length <= 3;
+      return h('tr', {}, [
+        h('td', {}, [h('b', { text: c.examName(e) }),
+          e.prefer ? h('span', { class: 'pill mute', style: 'margin-left:.4rem', text: 'wants ' + e.prefer }) : null]),
+        h('td', { class: 'sub', text: (e.members || []).map(c.facName).join(', ') }),
+        h('td', { class: 'num' }, [h('span', { class: 'pill ' + (tight ? 'warn' : 'mute'), text: String(opts.length) })]),
+        h('td', { class: 'sub', text: c.considerationText(e) || '' }),
+        h('td', { style: 'white-space:nowrap;width:1%' }, [
+          h('button', { class: 'btn sm primary', text: 'Book…', onclick: function () { bookDialog(e); } })
+        ])
+      ]);
+    });
     body.appendChild(h('div', { class: 'card' }, [
-      h('h2', { text: c.fmtDayLong(k) }),
-      h('div', { class: 'tablescroll', style: 'max-height:none' }, [h('table', { class: 'data' }, [
+      h('h2', { text: 'Ready to book (' + groups.ready.length + ')' }),
+      h('p', { class: 'sub', text: 'Fewest options first — book those before their times get taken.' }),
+      h('div', { class: 'tablescroll' }, [h('table', { class: 'data' }, [
+        h('thead', {}, [h('tr', {}, ['Student', 'Committee', 'Times', 'Considerations', ''].map(function (t) { return h('th', { text: t }); }))]),
+        h('tbody', {}, rows)
+      ])])
+    ]));
+  }
+
+  /* ---- blocked ---- */
+  var blocked = groups.waiting.concat(groups.stuck);
+  if (blocked.length) {
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: 'Blocked (' + blocked.length + ')' }),
+      h('ul', { class: 'clean' }, blocked.map(function (e) {
+        return h('li', { class: 'row' }, [
+          h('b', { text: c.examName(e) }),
+          h('span', { class: 'sub', text: (e.members || []).map(c.facName).join(', ') }),
+          h('span', { class: 'spacer' }), c.statusPill(e)
+        ]);
+      }))
+    ]));
+  }
+
+  /* ---- booked ---- */
+  if (groups.confirmed.length) {
+    var byDay = {};
+    groups.confirmed.forEach(function (e) {
+      var sl = res.confirmed[e.id];
+      (byDay[sl.dayKey] = byDay[sl.dayKey] || []).push({ e: e, s: sl });
+    });
+    var card = h('div', { class: 'card' }, [
+      h('div', { class: 'row' }, [
+        h('h2', { text: 'Booked (' + groups.confirmed.length + ')', style: 'margin:0' }),
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn sm danger', text: 'Release all', onclick: function () {
+          if (!confirm('Release all ' + groups.confirmed.length + ' bookings? Times go back to being suggestions.')) return;
+          db().put(root() + '/confirmed', null).then(function () { c.toast('Released'); });
+        } })
+      ])
+    ]);
+    Object.keys(byDay).sort().forEach(function (k) {
+      var list = byDay[k].sort(function (a, b) { return a.s.startMin - b.s.startMin; });
+      card.appendChild(h('h3', { style: 'margin:1rem 0 .2rem;color:var(--muted)', text: c.fmtDayLong(k) }));
+      card.appendChild(h('table', { class: 'data', style: 'width:100%' }, [
         h('tbody', {}, list.map(function (x) {
-          var locked = !!(S_.data.locks || {})[x.e.id];
           return h('tr', {}, [
-            h('td', { style: 'white-space:nowrap' }, [h('b', { text: c.fmtTime(x.s.startMin) + ' – ' + c.fmtTime(x.s.endMin) })]),
+            h('td', { style: 'white-space:nowrap;width:1%' }, [h('b', { text: c.fmtTime(x.s.startMin) + ' – ' + c.fmtTime(x.s.endMin) })]),
             h('td', {}, [h('b', { text: c.examName(x.e) })]),
             h('td', { class: 'sub', text: (x.e.members || []).map(c.facName).join(', ') }),
-            h('td', { style: 'white-space:nowrap' }, [
-              h('button', { class: 'btn sm' + (locked ? ' primary' : ''), title: locked ? 'pinned — the solver will not move it' : 'pin to this time',
-                text: locked ? 'Pinned' : 'Pin', onclick: function () { togglePin(x.e, x.s); } }),
-              h('button', { class: 'btn sm ghost', text: 'Move…', onclick: function () { moveDialog(x.e); } })
+            h('td', { style: 'white-space:nowrap;width:1%' }, [
+              h('button', { class: 'btn sm ghost', text: 'Change…', onclick: function () { bookDialog(x.e); } }),
+              h('button', { class: 'btn sm ghost', text: 'Release', onclick: function () { db().put(root() + '/confirmed/' + x.e.id, null); } })
             ])
           ]);
         }))
-      ])])
-    ]));
-  });
-}
-
-function togglePin(e, s) {
-  var locks = S().data.locks || {};
-  if (locks[e.id]) db().put(root() + '/locks/' + e.id, null);
-  else db().put(root() + '/locks/' + e.id, { dayKey: s.dayKey, startMin: s.startMin, at: Date.now() });
-}
-
-function pinAll() {
-  var c = C(), res = S().res, payload = {};
-  Object.keys(res.slotOf).forEach(function (id) {
-    payload[id] = { dayKey: res.slotOf[id].dayKey, startMin: res.slotOf[id].startMin, at: Date.now() };
-  });
-  db().put(root() + '/locks', payload).then(function () { c.toast('Pinned ' + Object.keys(payload).length + ' exams'); });
-}
-
-function moveDialog(e) {
-  var c = C(), h = c.h, res = S().res;
-  var cands = res.cands[e.id] || [];
-  // which of those clash with another exam as currently placed
-  var taken = {};
-  c.examList().forEach(function (o) {
-    if (o.id === e.id) return;
-    var s = res.slotOf[o.id]; if (!s) return;
-    var shares = (o.members || []).some(function (m) { return (e.members || []).indexOf(m) >= 0; });
-    if (!shares) return;
-    res.slots.forEach(function (sl) {
-      if (sl.di === res.slots[s.slotId].di && Math.abs(sl.startMin - s.startMin) < res.settings.durationMin) taken[sl.id] = c.examName(o);
+      ]));
     });
-  });
+    body.appendChild(card);
+  }
+
+  if (!exams.length) body.appendChild(h('div', { class: 'card empty', text: 'No exams yet.' }));
+}
+
+/* Book one exam. Shows every workable time, flags the ones that would strand
+   another student, and honours an early/late preference in the ordering. */
+function bookDialog(e) {
+  var c = C(), h = c.h, res = S().res;
+  var current = res.confirmed[e.id];
+  var opts = res.options[e.id] || [];
+  if (current) opts = (res.cands[e.id] || []).slice();     // rebooking: offer all workable times
+
+  var ordered = c.orderedOptions(e, opts);
+  var impact = {};
+  ordered.forEach(function (sid) { impact[sid] = Solver.bookingImpact(res, c.examList(), e.id, sid); });
 
   var body = h('div', {}, [
-    h('p', { class: 'sub', text: cands.length ? cands.length + ' windows work for all three members. Choosing one pins the exam there.' : 'There is no window where all three members are free. Ask one of them for more availability first.' }),
-    cands.length ? h('div', { class: 'tablescroll', style: 'max-height:50vh' }, [h('table', { class: 'data' }, [
-      h('tbody', {}, cands.map(function (sid) {
-        var sl = res.slots[sid];
+    h('p', { class: 'sub', text: (e.members || []).map(c.facName).join(', ') }),
+    c.considerationText(e) ? h('div', { class: 'hint', text: c.considerationText(e) }) : null,
+    current ? h('p', { class: 'sub' }, [document.createTextNode('Currently booked for '),
+      h('b', { text: c.fmtDay(current.dayKey) + ' ' + c.fmtTime(current.startMin) })]) : null,
+    h('p', { class: 'sub', text: ordered.length
+      ? ordered.length + ' time' + (ordered.length === 1 ? '' : 's') + ' work for all three members' +
+        (e.prefer ? ', ' + (e.prefer === 'late' ? 'latest' : 'earliest') + ' first as requested' : '') + '.'
+      : 'No time currently works. Someone needs to open more availability, or another booking has to move.' }),
+    ordered.length ? h('div', { class: 'tablescroll', style: 'max-height:46vh' }, [h('table', { class: 'data' }, [
+      h('tbody', {}, ordered.map(function (sid) {
+        var sl = res.slots[sid], hits = impact[sid] || [];
         return h('tr', {}, [
-          h('td', { text: c.fmtDay(sl.dayKey) }),
-          h('td', { text: c.fmtTime(sl.startMin) + ' – ' + c.fmtTime(sl.endMin) }),
-          h('td', {}, [taken[sid] ? h('span', { class: 'pill warn', text: 'clashes with ' + taken[sid] }) : h('span', { class: 'pill ok', text: 'free' })]),
-          h('td', {}, [h('button', { class: 'btn sm', text: 'Pin here', onclick: function () {
-            db().put(root() + '/locks/' + e.id, { dayKey: sl.dayKey, startMin: sl.startMin, at: Date.now() })
-              .then(function () { c.toast('Pinned'); c.closeModal(); });
+          h('td', { style: 'white-space:nowrap' , text: c.fmtDay(sl.dayKey) }),
+          h('td', { style: 'white-space:nowrap' }, [h('b', { text: c.fmtTime(sl.startMin) + ' – ' + c.fmtTime(sl.endMin) })]),
+          h('td', {}, [hits.length
+            ? h('span', { class: 'pill bad', title: hits.map(function (id) { return c.examName(Object.assign({ id: id }, S().data.exams[id])); }).join(', '),
+                text: 'would strand ' + hits.length + ' other' + (hits.length === 1 ? '' : 's') })
+            : h('span', { class: 'pill ok', text: 'safe' })]),
+          h('td', { style: 'width:1%' }, [h('button', { class: 'btn sm', text: 'Book', onclick: function () {
+            if (hits.length && !confirm('Booking this leaves no workable time for:\n\n' +
+                hits.map(function (id) { return '  · ' + c.examName(Object.assign({ id: id }, S().data.exams[id])); }).join('\n') +
+                '\n\nBook it anyway?')) return;
+            db().put(root() + '/confirmed/' + e.id, { dayKey: sl.dayKey, startMin: sl.startMin, at: Date.now() })
+              .then(function () { c.toast('Booked ' + c.examName(e) + ' — ' + c.fmtDay(sl.dayKey) + ' ' + c.fmtTime(sl.startMin)); c.closeModal(); });
           } })])
         ]);
       }))
     ])]) : null
   ]);
-  c.modal('Place ' + c.examName(e), body, []);
+
+  c.modal('Book ' + c.examName(e), body, current
+    ? [{ text: 'Release this booking', danger: true, fn: function () { db().put(root() + '/confirmed/' + e.id, null); } }]
+    : []);
+}
+
+/* Propose a time for everything still open, so the organiser can see a way to
+   finish rather than booking greedily into a corner. */
+function suggestDialog() {
+  var c = C(), h = c.h, res = S().res;
+  var ids = Object.keys(res.suggestion);
+  var stuck = res.bookable.filter(function (id) { return !res.suggestion[id]; });
+
+  var body = h('div', {}, [
+    h('p', { class: 'sub', text: ids.length
+      ? 'A complete set of times that works for everyone at once. Booking all of them is safe — they do not clash. You can also take them one at a time.'
+      : 'Nothing to propose.' }),
+    stuck.length ? h('div', { class: 'hint', text: stuck.length + ' exam' + (stuck.length === 1 ? '' : 's') +
+      ' could be booked individually but cannot fit alongside the rest. Book those by hand.' }) : null,
+    ids.length ? h('div', { class: 'tablescroll', style: 'max-height:50vh' }, [h('table', { class: 'data' }, [
+      h('thead', {}, [h('tr', {}, ['Student', 'Proposed', ''].map(function (t) { return h('th', { text: t }); }))]),
+      h('tbody', {}, ids.map(function (id) {
+        var e = Object.assign({ id: id }, S().data.exams[id]), sl = res.suggestion[id];
+        return h('tr', {}, [
+          h('td', {}, [h('b', { text: c.examName(e) }),
+            e.prefer ? h('span', { class: 'pill mute', style: 'margin-left:.4rem', text: 'wants ' + e.prefer }) : null]),
+          h('td', { style: 'white-space:nowrap', text: c.fmtDay(sl.dayKey) + ' ' + c.fmtTime(sl.startMin) }),
+          h('td', { style: 'width:1%' }, [h('button', { class: 'btn sm', text: 'Book', onclick: function (ev) {
+            db().put(root() + '/confirmed/' + id, { dayKey: sl.dayKey, startMin: sl.startMin, at: Date.now() })
+              .then(function () { ev.target.textContent = 'Booked'; ev.target.disabled = true; });
+          } })])
+        ]);
+      }))
+    ])]) : null
+  ]);
+
+  c.modal('Suggested times', body, ids.length ? [
+    { text: 'Book all ' + ids.length, primary: true, fn: function () {
+      var payload = {};
+      ids.forEach(function (id) {
+        payload[id] = { dayKey: res.suggestion[id].dayKey, startMin: res.suggestion[id].startMin, at: Date.now() };
+      });
+      db().patch(root() + '/confirmed', payload).then(function () { c.toast('Booked ' + ids.length + ' exams'); });
+    } }
+  ] : []);
 }
 
 /* ================================================================= tab: exams */
@@ -480,11 +577,7 @@ function tabExams(body) {
     h('div', { class: 'tablescroll' }, [h('table', { class: 'data' }, [
       h('thead', {}, [h('tr', {}, ['Student', 'Committee', 'Special considerations', 'Status', ''].map(function (t) { return h('th', { text: t }); }))]),
       h('tbody', {}, exams.map(function (e) {
-        var s = res.slotOf[e.id];
-        var un = (e.members || []).filter(function (m) { return !c.submitted(m); });
-        var status = s ? h('span', { class: 'pill ok', text: c.fmtDay(s.dayKey) + ' ' + c.fmtTime(s.startMin) })
-          : un.length ? h('span', { class: 'pill mute', text: 'waiting on ' + un.map(c.facName).join(', ') })
-          : (res.diag[e.id].common === 0 ? h('span', { class: 'pill bad', text: 'no common window' }) : h('span', { class: 'pill warn', text: 'squeezed out' }));
+        var status = c.statusPill(e);
         var bl = e.blackouts || [];
         return h('tr', {}, [
           h('td', {}, [h('b', { text: c.examName(e) })]),
@@ -497,7 +590,7 @@ function tabExams(body) {
           h('td', {}, [status]),
           h('td', { style: 'white-space:nowrap' }, [
             h('button', { class: 'btn sm ghost', text: 'Considerations…', onclick: function () { blackoutDialog(e); } }),
-            h('button', { class: 'btn sm ghost', text: 'Place…', onclick: function () { moveDialog(e); } })
+            h('button', { class: 'btn sm ghost', text: 'Book…', onclick: function () { bookDialog(e); } })
           ])
         ]);
       }))
@@ -584,6 +677,14 @@ function blackoutDialog(e) {
       h('input', { type: 'text', id: 'bo-label', placeholder: 'e.g. conference travel', style: 'width:100%' })]),
     h('div', { class: 'row' }, [h('button', { class: 'btn', text: '+ Add this constraint', onclick: addOne })]),
 
+    h('h3', { style: 'margin-top:1.4rem', text: 'Preference' }),
+    h('p', { class: 'sub', text: 'A soft steer, not a rule. It orders the times offered when booking and nudges the suggested set, but never rules a time out.' }),
+    h('select', { id: 'bo-prefer' }, [
+      h('option', { value: '', text: 'No preference', selected: !e.prefer }),
+      h('option', { value: 'early', text: 'As early in the period as possible', selected: e.prefer === 'early' }),
+      h('option', { value: 'late', text: 'As late in the period as possible', selected: e.prefer === 'late' })
+    ]),
+
     h('h3', { style: 'margin-top:1.4rem', text: 'Note' }),
     h('p', { class: 'sub', text: 'Anything the committee should know that is not a hard time constraint. Shown alongside the exam; does not affect scheduling.' }),
     h('textarea', { id: 'bo-note', style: 'min-height:70px;font-family:inherit;font-size:.9rem',
@@ -615,7 +716,8 @@ function blackoutDialog(e) {
     { text: 'Save', primary: true, fn: function () {
       db().patch(root() + '/exams/' + e.id, {
         blackouts: list.length ? list : null,
-        note: c.$('#bo-note').value.trim() || null
+        note: c.$('#bo-note').value.trim() || null,
+        prefer: c.$('#bo-prefer').value || null
       }).then(function () { c.toast('Saved'); });
     } }
   ]);
@@ -771,13 +873,13 @@ function tabSettings(body) {
 function scheduleRows() {
   var c = C(), res = S().res;
   return c.examList().map(function (e) {
-    var s = res.slotOf[e.id];
+    var s = res.confirmed[e.id];
     return {
       last: e.last, first: e.first,
       members: (e.members || []).map(c.facName),
       day: s ? s.dayKey : '', start: s ? c.fmtTime(s.startMin) : '', end: s ? c.fmtTime(s.endMin) : '',
       startMin: s ? s.startMin : null, endMin: s ? s.endMin : null,
-      status: s ? 'scheduled' : 'unscheduled'
+      status: s ? 'booked' : (((res.options[e.id] || []).length) ? 'ready to book' : 'blocked')
     };
   });
 }
@@ -795,7 +897,7 @@ function exportCsv() {
   var q = function (s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; };
   var out = ['Last Name,First Name,Date,Start,End,Member 1,Member 2,Member 3,Status'];
   rows.sort(function (a, b) {
-    if (a.status !== b.status) return a.status === 'scheduled' ? -1 : 1;   // unscheduled last
+    if ((a.status === 'booked') !== (b.status === 'booked')) return a.status === 'booked' ? -1 : 1;
     if (a.day !== b.day) return a.day < b.day ? -1 : 1;
     if (a.startMin !== b.startMin) return (a.startMin || 0) - (b.startMin || 0);
     return (a.last || '').localeCompare(b.last || '');
@@ -808,7 +910,7 @@ function exportCsv() {
 }
 
 function exportIcs() {
-  var c = C(), rows = scheduleRows().filter(function (r) { return r.status === 'scheduled'; });
+  var c = C(), rows = scheduleRows().filter(function (r) { return r.status === 'booked'; });
   function stamp(dayKey, min) {
     var d = Solver.parseYmd(dayKey);
     return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') +
