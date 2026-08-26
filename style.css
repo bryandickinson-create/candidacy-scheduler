@@ -33,6 +33,8 @@ a{color:var(--accent)}
 .dot.live{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
 .dot.off{background:var(--bad)}
 .conn{font-size:.78rem;color:var(--muted);display:flex;align-items:center}
+.whoami{display:flex;align-items:center;gap:.35rem;font-size:.86rem;padding:.15rem .3rem .15rem .6rem;
+  border:1px solid var(--line);border-radius:99px;background:var(--panel)}
 
 /* ---- buttons ---- */
 button{font:inherit}

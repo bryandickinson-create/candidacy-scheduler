@@ -92,12 +92,14 @@ var DEFAULT_SETTINGS = {
 var S = {
   db: null, root: '', eventId: '2026',
   data: { meta: null, settings: null, faculty: {}, exams: {}, avail: {}, locks: {}, board: null },
-  role: null,        // 'admin' | 'faculty'
+  role: null,        // 'admin' | 'board'
+  ptab: 'me',        // board tab: me | schedule | people
   me: null,          // faculty id when role==='faculty'
   tab: 'dash',
   res: null,         // last solve result
   connected: false,
   loaded: false,
+  stream: null,
   showHelp: true,
   pendingDays: {}    // local unsaved availability edits
 };
@@ -108,10 +110,17 @@ function dbUrl() {
 function setDbUrl(u) { localStorage.setItem('cs.db', u.replace(/\/+$/, '')); }
 
 function settings() { return Object.assign({}, DEFAULT_SETTINGS, S.data.settings || {}); }
+function surname(name) {
+  var p = String(name || '').trim().split(/\s+/);
+  return (p[p.length - 1] || '').toLowerCase();
+}
 function facList() {
+  // Sorted by surname — that is how people look for themselves in a faculty list.
   return Object.keys(S.data.faculty || {}).map(function (id) {
     return Object.assign({ id: id }, S.data.faculty[id]);
-  }).sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+  }).sort(function (a, b) {
+    return surname(a.name).localeCompare(surname(b.name)) || (a.name || '').localeCompare(b.name || '');
+  });
 }
 function examList() {
   return Object.keys(S.data.exams || {}).map(function (id) {
@@ -210,6 +219,10 @@ function publishBoard() {
   S.db.put(S.root + '/board', payload).catch(function (e) { console.warn('publish failed', e); });
 }
 
+function shareLink() {
+  return location.origin + location.pathname + '#/people';
+}
+
 /* ================================================================ live wire */
 
 function connect() {
@@ -224,6 +237,7 @@ function connect() {
     S.loaded = true;
     resolveAndRender(false);
     startStream();
+    watchVisibility();
   }).catch(function (e) {
     S.loaded = true;
     renderError(e);
@@ -292,8 +306,31 @@ var rerender = debounce(function again() {
   resolveAndRender(true);
 }, 250);
 
+/* Firebase's free tier allows 100 simultaneous connections. Nobody needs a live
+   socket for a tab they walked away from, so park the stream while hidden and
+   catch up with a plain read on return. */
+function watchVisibility() {
+  var idleTimer = null, IDLE = 5 * 60 * 1000;
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) {
+      idleTimer = setTimeout(function () {
+        if (S.stream) { S.stream.close(); S.stream = null; }
+      }, IDLE);
+      return;
+    }
+    clearTimeout(idleTimer);
+    if (S.stream) return;
+    S.db.get(S.root).then(function (data) {
+      ingest(data || {});
+      startStream();
+      resolveAndRender(false);
+    }).catch(function () { startStream(); });
+  });
+}
+
 function startStream() {
-  S.db.stream(S.root, function (ev) {
+  if (S.stream) return;
+  S.stream = S.db.stream(S.root, function (ev) {
     var tree = {
       meta: S.data.meta, settings: S.data.settings, faculty: S.data.faculty,
       exams: S.data.exams, avail: S.data.avail, locks: S.data.locks, board: S.data.board
@@ -312,21 +349,47 @@ function startStream() {
 
 /* ================================================================= routing */
 
+var PTABS = [['me', 'My availability'], ['schedule', 'Schedule'], ['people', 'Faculty']];
+
+function knownFaculty(id) { return !!(id && S.data.faculty && S.data.faculty[id]); }
+
+function setMe(fid) {
+  S.me = fid || null;
+  S.pendingDays = {};
+  if (fid) localStorage.setItem('cs.me', fid); else localStorage.removeItem('cs.me');
+}
+
 function route() {
   var hash = (location.hash || '').replace(/^#\/?/, '');
   var parts = hash.split('/').filter(Boolean);
-  if (parts[0] === 'f' && parts[1]) {
-    var tok = parts[1];
-    var fid = Object.keys(S.data.faculty).filter(function (id) { return S.data.faculty[id].token === tok; })[0];
-    if (fid) { S.role = 'faculty'; S.me = fid; return; }
-    S.role = 'badlink'; return;
-  }
+
   if (parts[0] === 'admin') {
     S.role = 'admin';
     S.tab = parts[1] || S.tab || 'dash';
     return;
   }
-  S.role = 'landing';
+
+  // Everyone else shares one link. Identity is a local choice, not a credential.
+  if (!knownFaculty(S.me)) {
+    var saved = localStorage.getItem('cs.me');
+    S.me = knownFaculty(saved) ? saved : null;
+  }
+
+  if (parts[0] === 'f' && parts[1]) {                      // older per-person links
+    var tok = parts[1];
+    var fid = Object.keys(S.data.faculty).filter(function (id) {
+      return id === tok || S.data.faculty[id].token === tok;
+    })[0];
+    if (fid) { setMe(fid); location.replace('#/me'); }
+    S.role = 'board'; S.ptab = 'me';
+    return;
+  }
+
+  S.role = 'board';
+  var want = parts[0];
+  if (!PTABS.some(function (t) { return t[0] === want; })) want = S.me ? 'me' : 'people';
+  if (want === 'me' && !S.me) want = 'people';
+  S.ptab = want;
 }
 
 window.addEventListener('hashchange', function () { route(); render(); });
@@ -342,13 +405,11 @@ function render() {
   if (!S.loaded) { app.appendChild(h('div', { class: 'boot', text: 'Connecting…' })); return; }
 
   if (S.role === 'admin' && !Admin.ok()) { app.appendChild(Admin.gate()); return; }
-  if (S.role === 'badlink') { app.appendChild(Admin.badLink()); return; }
-  if (S.role === 'landing') { app.appendChild(Admin.landing()); return; }
 
   app.appendChild(topbar());
-  var wrap = h('div', { class: 'wrap' + (S.role === 'admin' ? ' wide' : '') });
+  var wrap = h('div', { class: 'wrap wide' });
   app.appendChild(wrap);
-  if (S.role === 'faculty') facultyView(wrap);
+  if (S.role === 'board') boardView(wrap);
   else Admin.view(wrap);
   if (keepY) window.scrollTo(0, keepY);
 }
@@ -356,10 +417,16 @@ function render() {
 function topbar() {
   var st = settings();
   var right = [];
-  if (S.role === 'faculty') {
-    right.push(h('span', { class: 'sub', text: facName(S.me) }));
-  } else {
+  if (S.role === 'admin') {
     right.push(h('button', { class: 'btn sm ghost', onclick: function () { location.hash = '#/'; }, text: 'Exit admin' }));
+  } else if (S.me) {
+    right.push(h('span', { class: 'whoami' }, [
+      h('span', { class: 'sub', text: 'You are ' }),
+      h('b', { text: facName(S.me) }),
+      h('button', { class: 'btn sm ghost', text: 'switch', onclick: function () { setMe(null); location.hash = '#/people'; render(); } })
+    ]));
+  } else {
+    right.push(h('button', { class: 'btn sm primary', text: 'Choose your name', onclick: function () { location.hash = '#/people'; } }));
   }
   return h('div', { class: 'topbar' }, [
     h('div', { class: 'topbar-in' }, [
@@ -391,13 +458,145 @@ function progressCard() {
   ]);
 }
 
-/* ======================================================== faculty view ==== */
+/* ========================================================== board view ==== */
 
 function myExams() {
+  if (!S.me) return [];
   return examList().filter(function (e) { return (e.members || []).indexOf(S.me) >= 0; });
 }
 
-function facultyView(wrap) {
+function boardView(wrap) {
+  wrap.appendChild(h('div', { class: 'tabs' }, PTABS.map(function (t) {
+    var label = t[1];
+    if (t[0] === 'me' && S.me) {
+      var mine = myExams(), placed = mine.filter(function (e) { return S.res.slotOf[e.id]; }).length;
+      label = 'My availability';
+      if (mine.length) label += ' (' + placed + '/' + mine.length + ')';
+    }
+    return h('button', { 'aria-selected': S.ptab === t[0] ? 'true' : 'false', text: label,
+      onclick: function () { location.hash = '#/' + t[0]; } });
+  })));
+  var body = h('div');
+  wrap.appendChild(body);
+  body.appendChild(progressCard());
+  ({ me: tabMe, schedule: tabSchedule, people: tabPeople }[S.ptab] || tabPeople)(body);
+}
+
+/* ---------------------------------------------------------- tab: schedule */
+
+function tabSchedule(body) {
+  var res = S.res, exams = examList();
+  var byDay = {}, stuck = [];
+  exams.forEach(function (e) {
+    var sl = res.slotOf[e.id];
+    if (!sl) { stuck.push(e); return; }
+    (byDay[sl.dayKey] = byDay[sl.dayKey] || []).push({ e: e, s: sl });
+  });
+  var dayKeys = Object.keys(byDay).sort();
+
+  if (stuck.length) {
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: 'Not scheduled yet (' + stuck.length + ')' }),
+      h('ul', { class: 'clean' }, stuck.map(function (e) {
+        var un = (e.members || []).filter(function (m) { return !submitted(m); });
+        var why = un.length ? h('span', { class: 'pill mute', text: 'waiting on ' + un.map(facName).join(', ') })
+          : (res.diag[e.id] && res.diag[e.id].common === 0)
+            ? h('span', { class: 'pill bad', text: 'no time works for all three' })
+            : h('span', { class: 'pill warn', text: 'every workable time is taken' });
+        return h('li', { class: 'row' }, [
+          h('b', { text: examName(e) }),
+          h('span', { class: 'sub', text: (e.members || []).map(facName).join(', ') }),
+          h('span', { class: 'spacer' }), why
+        ]);
+      }))
+    ]));
+  }
+
+  if (!dayKeys.length) {
+    body.appendChild(h('div', { class: 'card empty', text: 'Nothing is scheduled yet — the board fills in as people submit.' }));
+    return;
+  }
+
+  var card = h('div', { class: 'card' }, [h('h2', { text: 'Scheduled (' + (exams.length - stuck.length) + ')' })]);
+  dayKeys.forEach(function (k) {
+    var list = byDay[k].sort(function (a, b) { return a.s.startMin - b.s.startMin; });
+    card.appendChild(h('h3', { style: 'margin:1.1rem 0 .3rem;color:var(--muted)', text: fmtDayLong(k) }));
+    card.appendChild(h('table', { class: 'data', style: 'width:100%' }, [
+      h('tbody', {}, list.map(function (x) {
+        var isMine = S.me && (x.e.members || []).indexOf(S.me) >= 0;
+        return h('tr', {}, [
+          h('td', { style: 'white-space:nowrap;width:1%' }, [h('b', { text: fmtTime(x.s.startMin) + ' – ' + fmtTime(x.s.endMin) })]),
+          h('td', {}, [h('b', { text: examName(x.e) }), isMine ? h('span', { class: 'pill ok', style: 'margin-left:.5rem', text: 'yours' }) : null]),
+          h('td', { class: 'sub', text: (x.e.members || []).map(facName).join(', ') })
+        ]);
+      }))
+    ]));
+  });
+  body.appendChild(card);
+}
+
+/* ----------------------------------------------------------- tab: faculty */
+
+function tabPeople(body) {
+  var res = S.res, facs = facList(), cpd = res.cpd, totalCells = res.days.length * cpd;
+
+  if (!S.me) {
+    body.appendChild(h('div', { class: 'hint' }, [
+      h('b', { text: 'Find your name below. ' }),
+      document.createTextNode('Clicking it opens your availability grid — no password, no personal link.')
+    ]));
+  }
+
+  var filter = h('input', { type: 'text', placeholder: 'Type to find a name…', style: 'width:100%;max-width:320px',
+    oninput: function (ev) {
+      var q = ev.target.value.toLowerCase();
+      $$('#people-rows tr').forEach(function (tr) {
+        tr.style.display = !q || tr.dataset.name.indexOf(q) >= 0 ? '' : 'none';
+      });
+    } });
+
+  var rows = facs.map(function (f) {
+    var a = S.data.avail[f.id], open = 0;
+    if (a && a.days) res.days.forEach(function (d) {
+      var row = a.days[d.key] || '';
+      for (var i = 0; i < row.length; i++) if (row[i] === '1') open++;
+    });
+    var pct = totalCells ? Math.round(open / totalCells * 100) : 0;
+    var mine = examList().filter(function (e) { return (e.members || []).indexOf(f.id) >= 0; });
+    var placed = mine.filter(function (e) { return res.slotOf[e.id]; }).length;
+    var isMe = f.id === S.me;
+    return h('tr', { dataset: { name: f.name.toLowerCase() }, style: isMe ? 'background:color-mix(in srgb,var(--ok) 10%,transparent)' : '' }, [
+      h('td', {}, [h('b', { text: f.name }), isMe ? h('span', { class: 'sub', text: '  (you)' }) : null]),
+      h('td', {}, [submitted(f.id) ? h('span', { class: 'pill ok', text: 'submitted' }) : h('span', { class: 'pill bad', text: 'not yet' })]),
+      h('td', { class: 'num sub', text: submitted(f.id) ? pct + '% open' : '—' }),
+      h('td', { class: 'num sub', text: placed + ' / ' + mine.length }),
+      h('td', { style: 'white-space:nowrap;width:1%' }, [
+        h('button', { class: 'btn sm' + (isMe ? ' primary' : ''), text: isMe ? 'Open mine' : (submitted(f.id) ? 'View / edit' : 'This is me'),
+          onclick: function () {
+            if (!isMe && submitted(f.id) &&
+                !confirm(f.name + ' has already submitted.\n\nOpen their availability? Only change it if you are ' + f.name + '.')) return;
+            setMe(f.id); location.hash = '#/me'; render();
+          } })
+      ])
+    ]);
+  });
+
+  body.appendChild(h('div', { class: 'card' }, [
+    h('div', { class: 'row' }, [
+      h('h2', { text: 'Faculty', style: 'margin:0' }),
+      h('span', { class: 'sub', text: facs.filter(function (f) { return submitted(f.id); }).length + ' of ' + facs.length + ' have submitted' }),
+      h('span', { class: 'spacer' }), filter
+    ]),
+    h('div', { class: 'tablescroll', style: 'margin-top:10px' }, [h('table', { class: 'data' }, [
+      h('thead', {}, [h('tr', {}, ['Name', 'Status', 'Availability', 'Exams placed', ''].map(function (t) { return h('th', { text: t }); }))]),
+      h('tbody', { id: 'people-rows' }, rows)
+    ])])
+  ]));
+}
+
+/* ------------------------------------------------------ tab: availability */
+
+function tabMe(wrap) {
   var st = settings();
   var a = S.data.avail[S.me] || {};
   var isSub = !!a.submitted;
@@ -412,7 +611,7 @@ function facultyView(wrap) {
   var pctOpen = totalCells ? Math.round(offered / totalCells * 100) : 0;
 
   wrap.appendChild(h('div', { class: 'card' }, [
-    h('h1', { text: 'Hello, ' + facName(S.me) }),
+    h('h1', { text: facName(S.me) }),
     h('p', { class: 'sub', text: 'You sit on ' + mine.length + ' candidacy committee' + (mine.length === 1 ? '' : 's') +
       '. Below is ' + fmtDay(st.startDate) + ' through ' + fmtDay(st.endDate) +
       '. Every half hour starts open — click and drag to grey out the times you are NOT available.' }),
@@ -484,7 +683,9 @@ function myExamsCard(mine) {
   var rows = mine.map(function (e) {
     var s = S.res.slotOf[e.id];
     var others = (e.members || []).filter(function (m) { return m !== S.me; }).map(facName).join(', ');
-    var waiting = (e.members || []).filter(function (m) { return !submitted(m); }).map(facName);
+    var waiting = (e.members || []).filter(function (m) { return !submitted(m); })
+      .sort(function (a, b) { return (a === S.me ? -1 : 0) - (b === S.me ? -1 : 0); })
+      .map(function (m) { return m === S.me ? 'you' : facName(m); });
     var status;
     if (s) status = h('span', { class: 'pill ok', text: fmtDay(s.dayKey) + ' · ' + fmtTime(s.startMin) + '–' + fmtTime(s.endMin) });
     else if (waiting.length) status = h('span', { class: 'pill mute', text: 'waiting on ' + waiting.join(', ') });
@@ -739,5 +940,5 @@ window.CS = { S: S, h: h, $: $, $$: $$, toast: toast, esc: esc, modal: modal, cl
   sha: sha, copyText: copyText, settings: settings, facList: facList, examList: examList, facName: facName,
   examName: examName, submitted: submitted, buildGrid: buildGrid, timeSelect: timeSelect, render: render,
   resolveAndRender: resolveAndRender, debounce: debounce, DEFAULT_SETTINGS: DEFAULT_SETTINGS,
-  setDbUrl: setDbUrl, dbUrl: dbUrl, defaultDay: defaultDay, progressCard: progressCard, pendingCount: pendingCount };
+  setDbUrl: setDbUrl, dbUrl: dbUrl, setMe: setMe, shareLink: shareLink, defaultDay: defaultDay, progressCard: progressCard, pendingCount: pendingCount };
 })();

@@ -189,9 +189,7 @@ function parseRoster(text) {
 
 /* ================================================================= tab: dashboard */
 
-function facLink(f) {
-  return location.origin + location.pathname + '#/f/' + f.token;
-}
+function facLink() { return C().shareLink(); }   // one link, same for everyone
 
 function tabDash(body) {
   var c = C(), h = c.h, S_ = S(), res = S_.res;
@@ -230,7 +228,7 @@ function tabDash(body) {
           sub ? h('span', { class: 'pill warn', text: 'submitted, but too little open' })
               : h('span', { class: 'pill bad', text: 'no response yet' }),
           h('span', { class: 'spacer' }),
-          h('button', { class: 'btn sm', text: 'Copy link', onclick: function () { c.copyText(facLink(Object.assign({ id: fid }, f))).then(function () { c.toast('Link copied'); }); } }),
+          h('button', { class: 'btn sm ghost', text: 'Open their grid', onclick: function () { c.setMe(fid); location.hash = '#/me'; } }),
           f.email ? h('a', { class: 'btn sm', href: mailtoFor(fid), text: 'Email' }) : null
         ]);
       }))
@@ -273,11 +271,11 @@ function tabDash(body) {
   body.appendChild(h('div', { class: 'card' }, [
     h('div', { class: 'row' }, [
       h('h2', { text: 'Faculty', style: 'margin:0' }), h('span', { class: 'spacer' }),
-      h('button', { class: 'btn sm', text: 'Copy every link', onclick: function () {
-        var tsv = facs.map(function (f) { return [f.name, f.email || '', facLink(f)].join('\t'); }).join('\n');
-        c.copyText('Name\tEmail\tPersonal link\n' + tsv).then(function () { c.toast('Copied ' + facs.length + ' rows — paste into a sheet for a mail merge'); });
+      h('button', { class: 'btn sm', text: 'Copy the shared link', onclick: function () {
+        c.copyText(c.shareLink()).then(function () { c.toast('Copied — this is the only link anyone needs'); });
       } }),
-      h('button', { class: 'btn sm', text: 'Email everyone who hasn’t replied', onclick: function () { bulkMail(facs.filter(function (f) { return !c.submitted(f.id); })); } })
+      h('button', { class: 'btn sm', text: 'Email everyone', onclick: function () { bulkMail(facs); } }),
+      h('button', { class: 'btn sm ghost', text: 'Email non-responders', onclick: function () { bulkMail(facs.filter(function (f) { return !c.submitted(f.id); })); } })
     ]),
     facTable(facs)
   ]));
@@ -300,8 +298,7 @@ function facTable(facs) {
       h('td', { class: 'num', text: placed + ' / ' + mine.length }),
       h('td', { class: 'sub', text: a && a.updated ? new Date(a.updated).toLocaleDateString() : '' }),
       h('td', { style: 'white-space:nowrap' }, [
-        h('button', { class: 'btn sm', text: 'Link', onclick: function () { c.copyText(facLink(f)).then(function () { c.toast('Copied'); }); } }),
-        h('button', { class: 'btn sm ghost', text: 'Open', onclick: function () { location.hash = '#/f/' + f.token; } })
+        h('button', { class: 'btn sm ghost', text: 'Open grid', onclick: function () { c.setMe(f.id); location.hash = '#/me'; } })
       ])
     ]);
   });
@@ -311,27 +308,50 @@ function facTable(facs) {
   ])]);
 }
 
+function inviteBody(greeting) {
+  return greeting + '\n\n' +
+    'We are scheduling this autumn\'s candidacy exams. Everything runs off one page:\n\n' +
+    C().shareLink() + '\n\n' +
+    'Find your name in the list, click it, and grey out the times you are NOT available. ' +
+    'The calendar starts completely open, so you only need to block what does not work — ' +
+    'teaching, standing meetings, travel. There is a button for repeating a weekly commitment across the whole quarter.\n\n' +
+    'Please leave as much open as you honestly can. Each exam needs 90 minutes where all three committee members are free, ' +
+    'so a nearly-full calendar from one person can stall several students.\n\n' +
+    'The page updates live: you will see exams land on the calendar as your colleagues reply, and you can go back and adjust at any time.\n\nThank you.';
+}
+
 function mailtoFor(fid) {
-  var c = C(), f = S().data.faculty[fid];
+  var f = S().data.faculty[fid];
   var title = (S().data.meta && S().data.meta.title) || 'Candidacy exams';
-  var body = 'Hi ' + f.name + ',\n\n' +
-    'We are scheduling this autumn\'s candidacy exams. Please open your personal link and grey out the times you are NOT available:\n\n' +
-    facLink(Object.assign({ id: fid }, f)) + '\n\n' +
-    'Everything starts open, so you only need to block what does not work. The page shows your committees filling in live as others reply.\n\nThank you.';
-  return 'mailto:' + encodeURIComponent(f.email || '') + '?subject=' + encodeURIComponent(title + ' — your availability') + '&body=' + encodeURIComponent(body);
+  return 'mailto:' + encodeURIComponent(f.email || '') +
+    '?subject=' + encodeURIComponent(title + ' — your availability') +
+    '&body=' + encodeURIComponent(inviteBody('Hi ' + f.name + ','));
 }
 
 function bulkMail(list) {
   var c = C(), h = c.h;
   if (!list.length) { c.toast('Everyone has replied'); return; }
   var withEmail = list.filter(function (f) { return f.email; });
+  var missing = list.filter(function (f) { return !f.email; });
+  var title = (S().data.meta && S().data.meta.title) || 'Candidacy exams';
+  var addrs = withEmail.map(function (f) { return f.email; }).join(',');
+  var text = inviteBody('Dear colleagues,');
+  var href = 'mailto:?bcc=' + encodeURIComponent(addrs) +
+    '&subject=' + encodeURIComponent(title + ' — your availability') + '&body=' + encodeURIComponent(text);
+
   var body = h('div', {}, [
-    h('p', { class: 'sub', text: list.length + ' people have not submitted. ' + withEmail.length + ' of them have an email address on file.' }),
-    h('p', { class: 'sub', text: 'Personal links differ per person, so a single group email will not work. Copy the table below into a spreadsheet and mail-merge it, or send them one at a time.' }),
-    h('textarea', { readonly: true, style: 'min-height:200px', text: 'Name\tEmail\tPersonal link\n' + list.map(function (f) { return [f.name, f.email || '', facLink(f)].join('\t'); }).join('\n') })
+    h('p', { class: 'sub', text: list.length + ' people have not submitted.' +
+      (missing.length ? ' ' + missing.length + ' have no email address on file (' + missing.slice(0, 6).map(function (f) { return f.name; }).join(', ') + (missing.length > 6 ? '…' : '') + ') — add them on this tab.' : '') }),
+    h('p', { class: 'sub', text: 'Everyone shares one link, so this is a single email. Addresses go in BCC.' }),
+    h('label', { class: 'field' }, [h('span', { text: 'BCC' }),
+      h('textarea', { id: 'bm-to', readonly: true, style: 'min-height:70px', text: addrs })]),
+    h('label', { class: 'field' }, [h('span', { text: 'Message' }),
+      h('textarea', { id: 'bm-body', readonly: true, style: 'min-height:230px', text: text })])
   ]);
-  c.modal('Chase the missing replies', body, [
-    { text: 'Copy table', primary: true, fn: function () { c.copyText(c.$('#modal-body textarea').value).then(function () { c.toast('Copied'); }); return true; } }
+  c.modal('Email the ' + list.length + ' who have not replied', body, [
+    { text: 'Open in mail app', primary: true, fn: function () { window.location.href = href; } },
+    { text: 'Copy addresses', fn: function () { c.copyText(addrs).then(function () { c.toast('Copied ' + withEmail.length + ' addresses'); }); return true; } },
+    { text: 'Copy message', fn: function () { c.copyText(text).then(function () { c.toast('Copied'); }); return true; } }
   ]);
 }
 
@@ -565,11 +585,13 @@ function tabFaculty(body) {
   var facs = c.facList();
   body.appendChild(h('div', { class: 'card' }, [
     h('div', { class: 'row' }, [
-      h('h2', { text: 'Faculty (' + facs.length + ')', style: 'margin:0' }), h('span', { class: 'spacer' }),
+      h('h2', { text: 'Faculty (' + facs.length + ')', style: 'margin:0' }),
+      h('span', { class: 'sub', text: 'everyone uses the same link; names here are what they pick from' }),
+      h('span', { class: 'spacer' }),
       h('button', { class: 'btn sm', text: 'Paste email addresses…', onclick: emailDialog })
     ]),
     h('div', { class: 'tablescroll' }, [h('table', { class: 'data' }, [
-      h('thead', {}, [h('tr', {}, ['Name', 'Email', 'Status', 'Committees', 'Personal link', ''].map(function (t) { return h('th', { text: t }); }))]),
+      h('thead', {}, [h('tr', {}, ['Name', 'Email', 'Status', 'Committees', ''].map(function (t) { return h('th', { text: t }); }))]),
       h('tbody', {}, facs.map(function (f) {
         var n = c.examList().filter(function (e) { return (e.members || []).indexOf(f.id) >= 0; }).length;
         return h('tr', {}, [
@@ -579,9 +601,8 @@ function tabFaculty(body) {
             db().patch(root() + '/faculty/' + f.id, { email: ev.target.value.trim() }); } })]),
           h('td', {}, [c.submitted(f.id) ? h('span', { class: 'pill ok', text: 'submitted' }) : h('span', { class: 'pill bad', text: 'no reply' })]),
           h('td', { class: 'num', text: String(n) }),
-          h('td', { class: 'mono sub', text: '#/f/' + f.token }),
           h('td', { style: 'white-space:nowrap' }, [
-            h('button', { class: 'btn sm', text: 'Copy', onclick: function () { c.copyText(facLink(f)).then(function () { c.toast('Copied'); }); } }),
+            h('button', { class: 'btn sm ghost', text: 'Open grid', onclick: function () { c.setMe(f.id); location.hash = '#/me'; } }),
             f.email ? h('a', { class: 'btn sm', href: mailtoFor(f.id), text: 'Email' }) : null,
             h('button', { class: 'btn sm ghost', text: 'Reset', title: 'clear this person’s availability', onclick: function () {
               if (!confirm('Clear ' + f.name + '’s availability? They will need to fill it in again.')) return;
