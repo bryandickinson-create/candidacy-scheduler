@@ -4,6 +4,6 @@
    Until this is filled in, the app falls back to whatever URL you enter on the
    setup screen, which is stored only in your own browser. */
 window.APP_CONFIG = {
-  databaseURL: "",
+  databaseURL: "https://candidacy-scheduler-default-rtdb.firebaseio.com",
   eventId: "2026"
 };
