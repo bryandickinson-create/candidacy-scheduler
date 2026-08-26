@@ -508,7 +508,7 @@ function tabExams(body) {
 function describeBlackout(b) {
   var c = C();
   var when = b.dow != null
-    ? 'every ' + c.DOWS[b.dow] + 'day'
+    ? 'every ' + c.DOWFULL[b.dow]
     : (b.from === b.to ? c.fmtDay(b.from) : c.fmtDay(b.from) + '–' + c.fmtDay(b.to));
   var t = (b.fromMin != null || b.toMin != null)
     ? ' ' + c.fmtTime(b.fromMin != null ? b.fromMin : 0) + '–' + c.fmtTime(b.toMin != null ? b.toMin : 1440)
@@ -568,7 +568,7 @@ function blackoutDialog(e) {
     h('div', { id: 'bo-weekday', style: 'display:none' }, [
       h('label', { class: 'field' }, [h('span', { text: 'Every' }),
         h('select', { id: 'bo-dow' }, [1, 2, 3, 4, 5].map(function (d) {
-          return h('option', { value: String(d), text: c.DOWS[d] + 'day' });
+          return h('option', { value: String(d), text: c.DOWFULL[d] });
         }))])
     ]),
 

@@ -44,6 +44,7 @@ function fmtTime(min) {
   return h12 + (mm ? ':' + String(mm).padStart(2, '0') : '') + ap;
 }
 var DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+var DOWFULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 var MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function fmtDay(key) {
   var d = Solver.parseYmd(key);
@@ -472,7 +473,7 @@ function progressCard() {
 function considerationText(e) {
   var out = (e.blackouts || []).map(function (b) {
     var when = b.dow != null
-      ? 'no ' + DOWS[b.dow] + 'days'
+      ? 'no ' + DOWFULL[b.dow] + 's'
       : (b.from === b.to ? 'not ' + fmtDay(b.from) : 'not ' + fmtDay(b.from) + '–' + fmtDay(b.to));
     var t = (b.fromMin != null || b.toMin != null)
       ? ' ' + fmtTime(b.fromMin != null ? b.fromMin : 0) + '–' + fmtTime(b.toMin != null ? b.toMin : 1440) : '';
@@ -902,7 +903,7 @@ function openTemplate() {
   var body = h('div', {}, [
     h('p', { class: 'sub', text: 'Block the same window every week — a course, a group meeting, a standing seminar.' }),
     h('label', { class: 'field' }, [h('span', { text: 'Day of week' }),
-      h('select', { id: 't-dow' }, [1, 2, 3, 4, 5].map(function (d) { return h('option', { value: String(d), text: DOWS[d] + 'days' }); }))]),
+      h('select', { id: 't-dow' }, [1, 2, 3, 4, 5].map(function (d) { return h('option', { value: String(d), text: DOWFULL[d] + 's' }); }))]),
     h('div', { class: 'row' }, [
       h('label', { class: 'field' }, [h('span', { text: 'From' }), timeSelect('t-from', st, st.dayStartMin)]),
       h('label', { class: 'field' }, [h('span', { text: 'To' }), timeSelect('t-to', st, st.dayStartMin + 120)])
@@ -968,7 +969,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 /* exported for the admin module */
 window.CS = { S: S, h: h, $: $, $$: $$, toast: toast, esc: esc, modal: modal, closeModal: closeModal,
-  fmtTime: fmtTime, fmtDay: fmtDay, fmtDayLong: fmtDayLong, DOWS: DOWS, MONS: MONS, slug: slug, token: token,
+  fmtTime: fmtTime, fmtDay: fmtDay, fmtDayLong: fmtDayLong, DOWS: DOWS, DOWFULL: DOWFULL, MONS: MONS, slug: slug, token: token,
   sha: sha, copyText: copyText, settings: settings, facList: facList, examList: examList, facName: facName,
   examName: examName, submitted: submitted, buildGrid: buildGrid, timeSelect: timeSelect, render: render,
   resolveAndRender: resolveAndRender, debounce: debounce, DEFAULT_SETTINGS: DEFAULT_SETTINGS,
