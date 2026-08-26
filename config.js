@@ -11,5 +11,5 @@ window.APP_CONFIG = {
 
      Flip this to "2026" when you are ready to email people, and redeploy.
      A ?event=<id> on the URL overrides this for a single visit. */
-  eventId: "test"
+  eventId: "2026"
 };
