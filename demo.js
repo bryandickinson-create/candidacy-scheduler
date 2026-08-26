@@ -124,5 +124,6 @@ function seed() {
   save(store);
 }
 
-if (/[?&]fresh\b/.test(location.search) || !getAt(load(), 'candidacy/demo/meta')) seed();
+if (/[?&]empty\b/.test(location.search)) save({});          // exercise the create-event flow
+else if (/[?&]fresh\b/.test(location.search) || !getAt(load(), 'candidacy/demo/meta')) seed();
 })();

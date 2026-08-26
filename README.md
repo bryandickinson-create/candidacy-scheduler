@@ -13,7 +13,8 @@ in while people are still replying.
 
 Open `index.html?demo` — it swaps Firebase for an in-browser store seeded with
 the real roster and plausible availability. Open the same URL in two tabs to
-watch the live updates. Add `&fresh` to reseed. Nothing leaves the browser.
+watch the live updates. Add `&fresh` to reseed, or `&empty` to start from the create-event screen.
+Nothing leaves the browser.
 
 ## Setup
 
