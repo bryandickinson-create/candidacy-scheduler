@@ -193,6 +193,25 @@ function facLink() { return C().shareLink(); }   // one link, same for everyone
 
 function tabDash(body) {
   var c = C(), h = c.h, S_ = S(), res = S_.res;
+
+  if (!(S_.data.meta && S_.data.meta.adminHash)) {
+    body.appendChild(h('div', { class: 'hint' }, [
+      h('b', { text: 'No organiser passphrase set. ' }),
+      document.createTextNode('Anyone who opens this page can book, release and edit. A passphrase will not stop someone determined — the data is reachable either way — but it keeps colleagues from wandering in here by accident.'),
+      h('div', { class: 'row', style: 'margin-top:.6rem' }, [
+        h('input', { type: 'password', id: 'quick-pin', placeholder: 'choose a passphrase', style: 'width:230px',
+          onkeydown: function (ev) { if (ev.key === 'Enter') setPin(); } }),
+        h('button', { class: 'btn sm primary', text: 'Set it', onclick: setPin })
+      ])
+    ]));
+  }
+  function setPin() {
+    var v = c.$('#quick-pin').value;
+    if (v.length < 4) { c.toast('Use at least 4 characters'); return; }
+    db().patch(root() + '/meta', { adminHash: c.sha(v) })
+      .then(function () { localStorage.setItem('cs.pin', v); c.toast('Passphrase set'); });
+  }
+
   body.appendChild(c.progressCard());
 
   /* --- what is blocking things --- */
@@ -812,6 +831,29 @@ function tabSettings(body) {
   var ex = (st.excludeDates || []).join(', ');
 
   body.appendChild(h('div', { class: 'card' }, [
+    h('h2', { text: 'Event' }),
+    h('label', { class: 'field' }, [h('span', { text: 'Title' }), h('input', { type: 'text', id: 's-title', value: (S_.data.meta && S_.data.meta.title) || '', style: 'width:100%;max-width:420px', onchange: function (ev) { db().patch(root() + '/meta', { title: ev.target.value }); } })]),
+    h('label', { class: 'field' }, [h('span', { text: 'Change organiser passphrase' }),
+      h('div', { class: 'row' }, [h('input', { type: 'password', id: 's-pin', placeholder: 'new passphrase', style: 'width:220px' }),
+        h('button', { class: 'btn sm', text: 'Change', onclick: function () {
+          var v = c.$('#s-pin').value; if (v.length < 4) { c.toast('Too short'); return; }
+          db().patch(root() + '/meta', { adminHash: c.sha(v) }).then(function () { localStorage.setItem('cs.pin', v); c.toast('Changed'); });
+        } })])]),
+    h('h3', { style: 'margin-top:1.2rem', text: 'Reset' }),
+    h('div', { class: 'row' }, [
+      h('button', { class: 'btn sm danger', text: 'Clear all availability', onclick: function () {
+        if (!confirm('Delete every faculty member’s availability? The roster and links are kept.')) return;
+        db().put(root() + '/avail', null).then(function () { c.toast('Cleared'); });
+      } }),
+      h('button', { class: 'btn sm danger', text: 'Delete the whole event', onclick: function () {
+        if (!confirm('Delete everything — roster, links, availability, schedule?')) return;
+        if (!confirm('Really? This cannot be undone.')) return;
+        db().put(root(), null).then(function () { location.reload(); });
+      } })
+    ])
+  ]));
+
+  body.appendChild(h('div', { class: 'card' }, [
     h('h2', { text: 'Scheduling window' }),
     h('div', { class: 'grid2' }, [
       h('div', {}, [
@@ -843,29 +885,6 @@ function tabSettings(body) {
         db().put(root() + '/settings', next).then(function () { c.toast('Saved — availability grids now cover the new window'); });
       } }),
       h('span', { class: 'sub', text: 'Changing the window keeps availability already entered for days that are still in range.' })
-    ])
-  ]));
-
-  body.appendChild(h('div', { class: 'card' }, [
-    h('h2', { text: 'Event' }),
-    h('label', { class: 'field' }, [h('span', { text: 'Title' }), h('input', { type: 'text', id: 's-title', value: (S_.data.meta && S_.data.meta.title) || '', style: 'width:100%;max-width:420px', onchange: function (ev) { db().patch(root() + '/meta', { title: ev.target.value }); } })]),
-    h('label', { class: 'field' }, [h('span', { text: 'Change organiser passphrase' }),
-      h('div', { class: 'row' }, [h('input', { type: 'password', id: 's-pin', placeholder: 'new passphrase', style: 'width:220px' }),
-        h('button', { class: 'btn sm', text: 'Change', onclick: function () {
-          var v = c.$('#s-pin').value; if (v.length < 4) { c.toast('Too short'); return; }
-          db().patch(root() + '/meta', { adminHash: c.sha(v) }).then(function () { localStorage.setItem('cs.pin', v); c.toast('Changed'); });
-        } })])]),
-    h('h3', { style: 'margin-top:1.2rem', text: 'Reset' }),
-    h('div', { class: 'row' }, [
-      h('button', { class: 'btn sm danger', text: 'Clear all availability', onclick: function () {
-        if (!confirm('Delete every faculty member’s availability? The roster and links are kept.')) return;
-        db().put(root() + '/avail', null).then(function () { c.toast('Cleared'); });
-      } }),
-      h('button', { class: 'btn sm danger', text: 'Delete the whole event', onclick: function () {
-        if (!confirm('Delete everything — roster, links, availability, schedule?')) return;
-        if (!confirm('Really? This cannot be undone.')) return;
-        db().put(root(), null).then(function () { location.reload(); });
-      } })
     ])
   ]));
 }

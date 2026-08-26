@@ -162,7 +162,9 @@ function currentSolve() {
 
 function inputHash() {
   var st = settings();
-  var parts = [JSON.stringify(st)];
+  // meta is in here so a title or passphrase change redraws too, even though
+  // neither feeds the solver
+  var parts = [JSON.stringify(st), JSON.stringify(S.data.meta || null)];
   examList().forEach(function (e) { parts.push(e.id + ':' + (e.members || []).join(',') + ':' + JSON.stringify(e.blackouts || [])); });
   Object.keys(S.data.avail || {}).sort().forEach(function (f) {
     var a = S.data.avail[f];
