@@ -274,8 +274,11 @@ function tabDash(body) {
       h('button', { class: 'btn sm', text: 'Copy the shared link', onclick: function () {
         c.copyText(c.shareLink()).then(function () { c.toast('Copied — this is the only link anyone needs'); });
       } }),
-      h('button', { class: 'btn sm', text: 'Email everyone', onclick: function () { bulkMail(facs); } }),
-      h('button', { class: 'btn sm ghost', text: 'Email non-responders', onclick: function () { bulkMail(facs.filter(function (f) { return !c.submitted(f.id); })); } })
+      h('button', { class: 'btn sm', text: 'Email everyone', onclick: function () { bulkMail(facs, 'Invite all ' + facs.length + ' faculty'); } }),
+      h('button', { class: 'btn sm ghost', text: 'Email non-responders', onclick: function () {
+        var out = facs.filter(function (f) { return !c.submitted(f.id); });
+        bulkMail(out, 'Chase the ' + out.length + ' who have not replied');
+      } })
     ]),
     facTable(facs)
   ]));
@@ -328,7 +331,7 @@ function mailtoFor(fid) {
     '&body=' + encodeURIComponent(inviteBody('Hi ' + f.name + ','));
 }
 
-function bulkMail(list) {
+function bulkMail(list, title) {
   var c = C(), h = c.h;
   if (!list.length) { c.toast('Everyone has replied'); return; }
   var withEmail = list.filter(function (f) { return f.email; });
@@ -340,7 +343,7 @@ function bulkMail(list) {
     '&subject=' + encodeURIComponent(title + ' — your availability') + '&body=' + encodeURIComponent(text);
 
   var body = h('div', {}, [
-    h('p', { class: 'sub', text: list.length + ' people have not submitted.' +
+    h('p', { class: 'sub', text: list.length + ' recipients.' +
       (missing.length ? ' ' + missing.length + ' have no email address on file (' + missing.slice(0, 6).map(function (f) { return f.name; }).join(', ') + (missing.length > 6 ? '…' : '') + ') — add them on this tab.' : '') }),
     h('p', { class: 'sub', text: 'Everyone shares one link, so this is a single email. Addresses go in BCC.' }),
     h('label', { class: 'field' }, [h('span', { text: 'BCC' }),
@@ -348,7 +351,7 @@ function bulkMail(list) {
     h('label', { class: 'field' }, [h('span', { text: 'Message' }),
       h('textarea', { id: 'bm-body', readonly: true, style: 'min-height:230px', text: text })])
   ]);
-  c.modal('Email the ' + list.length + ' who have not replied', body, [
+  c.modal(title || ('Email ' + list.length + ' people'), body, [
     { text: 'Open in mail app', primary: true, fn: function () { window.location.href = href; } },
     { text: 'Copy addresses', fn: function () { c.copyText(addrs).then(function () { c.toast('Copied ' + withEmail.length + ' addresses'); }); return true; } },
     { text: 'Copy message', fn: function () { c.copyText(text).then(function () { c.toast('Copied'); }); return true; } }
