@@ -1,0 +1,758 @@
+/* admin.js — setup, landing pages, and the organiser's console. */
+(function () {
+'use strict';
+var A = window.Admin = window.Admin || {};
+
+function C() { return window.CS; }
+function S() { return window.CS.S; }
+function db() { return window.CS.S.db; }
+function root() { return window.CS.S.root; }
+
+/* ------------------------------------------------------------------ setup */
+
+A.renderSetup = function () {
+  var c = C(), h = c.h;
+  var app = c.$('#app'); app.textContent = '';
+  app.appendChild(h('div', { class: 'wrap' }, [
+    h('div', { class: 'card' }, [
+      h('h1', { text: 'One-time setup' }),
+      h('p', { class: 'sub', text: 'This app keeps everything in a Firebase Realtime Database, which is free at this size and needs no server of your own.' }),
+      h('ol', { class: 'sub', style: 'line-height:1.8' }, [
+        h('li', { html: 'Go to <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a> and create a project (no billing needed).' }),
+        h('li', { html: 'In the left sidebar choose <b>Build → Realtime Database → Create Database</b>. Pick any location and start in <b>test mode</b>.' }),
+        h('li', { html: 'Open the <b>Rules</b> tab and paste the rules shown below, then Publish.' }),
+        h('li', { html: 'Copy the database URL from the top of the Data tab and paste it here.' })
+      ]),
+      h('label', { class: 'field' }, [h('span', { text: 'Database URL' }),
+        h('input', { type: 'text', id: 'su-url', style: 'width:100%', placeholder: 'https://your-project-default-rtdb.firebaseio.com' })]),
+      h('div', { class: 'row' }, [
+        h('button', { class: 'btn primary', text: 'Connect', onclick: function () {
+          var u = c.$('#su-url').value.trim().replace(/\/+$/, '');
+          if (!/^https:\/\//.test(u)) { c.toast('That does not look like a URL'); return; }
+          var probe = new FB(u);
+          probe.get('candidacy').then(function () {
+            c.setDbUrl(u); location.reload();
+          }).catch(function (e) { c.toast('Could not read from that database: ' + e.message, 6000); });
+        } })
+      ]),
+      h('h3', { style: 'margin-top:1.4rem', text: 'Rules to paste' }),
+      h('p', { class: 'sub', text: 'These let anyone with a link read and write this one branch, and nothing else. That is the same trade-off as a shared Google Sheet link — fine for scheduling, not for anything confidential.' }),
+      h('textarea', { readonly: true, style: 'min-height:150px', text:
+        '{\n  "rules": {\n    ".read": false,\n    ".write": false,\n    "candidacy": {\n      ".read": true,\n      ".write": true,\n      ".indexOn": []\n    }\n  }\n}' })
+    ])
+  ]));
+};
+
+/* --------------------------------------------------------------- landing */
+
+A.landing = function () {
+  var c = C(), h = c.h, S_ = S();
+  var hasEvent = !!(S_.data.meta);
+  return h('div', { class: 'wrap' }, [
+    h('div', { class: 'card' }, [
+      h('h1', { text: hasEvent ? (S_.data.meta.title || 'Candidacy Exam Scheduling') : 'Candidacy Exam Scheduling' }),
+      hasEvent
+        ? h('p', { class: 'sub', text: 'Faculty: open the personal link you were emailed. It looks like this page’s address with #/f/… on the end.' })
+        : h('p', { class: 'sub', text: 'No event has been created yet.' }),
+      h('div', { class: 'row', style: 'margin-top:12px' }, [
+        h('button', { class: 'btn primary', text: hasEvent ? 'Organiser sign-in' : 'Create the event', onclick: function () { location.hash = '#/admin'; } })
+      ])
+    ])
+  ]);
+};
+
+A.badLink = function () {
+  var c = C(), h = c.h;
+  return h('div', { class: 'wrap' }, [h('div', { class: 'card' }, [
+    h('h1', { text: 'That link is not recognised' }),
+    h('p', { class: 'sub', text: 'The personal link may have been truncated by your mail client, or the organiser may have regenerated it. Ask them to resend it.' }),
+    h('button', { class: 'btn', text: 'Back', onclick: function () { location.hash = '#/'; } })
+  ])]);
+};
+
+/* ------------------------------------------------------------ admin gate */
+
+A.ok = function () {
+  var S_ = S();
+  if (!S_.data.meta || !S_.data.meta.adminHash) return true;         // not configured yet
+  return C().sha(localStorage.getItem('cs.pin') || '') === S_.data.meta.adminHash;
+};
+
+A.gate = function () {
+  var c = C(), h = c.h;
+  return h('div', { class: 'wrap' }, [h('div', { class: 'card' }, [
+    h('h1', { text: 'Organiser sign-in' }),
+    h('label', { class: 'field' }, [h('span', { text: 'Passphrase' }),
+      h('input', { type: 'password', id: 'pin', style: 'width:260px', onkeydown: function (e) { if (e.key === 'Enter') go(); } })]),
+    h('button', { class: 'btn primary', text: 'Enter', onclick: go })
+  ])]);
+  function go() {
+    var v = c.$('#pin').value;
+    if (c.sha(v) !== S().data.meta.adminHash) { c.toast('Not that one'); return; }
+    localStorage.setItem('cs.pin', v); c.render();
+  }
+};
+
+/* =================================================================== view */
+
+var TABS = [['dash', 'Dashboard'], ['sched', 'Schedule'], ['exams', 'Exams'], ['fac', 'Faculty'], ['set', 'Settings']];
+
+A.view = function (wrap) {
+  var c = C(), h = c.h, S_ = S();
+  if (!S_.data.meta) { wrap.appendChild(createEvent()); return; }
+
+  var tabs = h('div', { class: 'tabs' }, TABS.map(function (t) {
+    return h('button', { 'aria-selected': S_.tab === t[0] ? 'true' : 'false', text: t[1],
+      onclick: function () { S_.tab = t[0]; location.hash = '#/admin/' + t[0]; } });
+  }));
+  wrap.appendChild(tabs);
+  var body = h('div');
+  wrap.appendChild(body);
+  ({ dash: tabDash, sched: tabSched, exams: tabExams, fac: tabFaculty, set: tabSettings }[S_.tab] || tabDash)(body);
+};
+
+/* ---------------------------------------------------------- create event */
+
+function createEvent() {
+  var c = C(), h = c.h;
+  return h('div', { class: 'card' }, [
+    h('h1', { text: 'Create the event' }),
+    h('p', { class: 'sub', text: 'This writes the roster and the scheduling window. You can change all of it afterwards.' }),
+    h('label', { class: 'field' }, [h('span', { text: 'Title' }), h('input', { type: 'text', id: 'ce-title', value: 'Candidacy Exams — Autumn 2026', style: 'width:100%;max-width:420px' })]),
+    h('label', { class: 'field' }, [h('span', { text: 'Organiser passphrase (you will need this to get back in)' }), h('input', { type: 'password', id: 'ce-pin', style: 'width:260px' })]),
+    h('div', { class: 'row' }, [
+      h('label', { class: 'field' }, [h('span', { text: 'From' }), h('input', { type: 'date', id: 'ce-a', value: c.DEFAULT_SETTINGS.startDate })]),
+      h('label', { class: 'field' }, [h('span', { text: 'To' }), h('input', { type: 'date', id: 'ce-b', value: c.DEFAULT_SETTINGS.endDate })])
+    ]),
+    h('label', { class: 'field' }, [h('span', { text: 'Roster — one exam per line: Last, First, Member 1, Member 2, Member 3' }),
+      h('textarea', { id: 'ce-roster', style: 'min-height:180px', text: seedText() })]),
+    h('button', { class: 'btn primary', text: 'Create', onclick: function () {
+      var pin = c.$('#ce-pin').value;
+      if (pin.length < 4) { c.toast('Use at least 4 characters'); return; }
+      var parsed = parseRoster(c.$('#ce-roster').value);
+      if (parsed.errors.length) { c.toast(parsed.errors[0], 6000); return; }
+      var payload = {
+        meta: { title: c.$('#ce-title').value.trim() || 'Candidacy Exams', created: Date.now(), adminHash: c.sha(pin), mode: 'blockout' },
+        settings: Object.assign({}, c.DEFAULT_SETTINGS, { startDate: c.$('#ce-a').value, endDate: c.$('#ce-b').value }),
+        faculty: parsed.faculty, exams: parsed.exams
+      };
+      db().patch(root(), payload).then(function () {
+        localStorage.setItem('cs.pin', pin);
+        c.toast('Event created'); 
+      }).catch(function (e) { c.toast('Failed: ' + e.message, 6000); });
+    } })
+  ]);
+}
+
+function seedText() {
+  var seed = window.ROSTER_SEED;
+  if (!seed) return '';
+  return seed.exams.map(function (e) { return [e.last, e.first].concat(e.members).join(', '); }).join('\n');
+}
+
+function parseRoster(text) {
+  var c = C();
+  var faculty = {}, exams = {}, errors = [], byName = {};
+  // keep existing faculty ids/tokens so links survive a re-import
+  var existing = S().data.faculty || {};
+  Object.keys(existing).forEach(function (id) { byName[norm(existing[id].name)] = id; faculty[id] = existing[id]; });
+
+  function norm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function fid(name) {
+    var k = norm(name);
+    if (byName[k]) return byName[k];
+    var id = c.slug(name), n = 1;
+    while (faculty[id]) id = c.slug(name) + '-' + (++n);
+    faculty[id] = { name: String(name).replace(/\s+/g, ' ').trim(), email: '', token: c.token() };
+    byName[k] = id;
+    return id;
+  }
+
+  var lines = String(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+  var seenIds = {};
+  lines.forEach(function (line, i) {
+    if (/^last\s*name/i.test(line)) return;
+    var parts = line.split(/\t|,(?![^(]*\))/).map(function (p) { return p.trim(); });
+    if (parts.length < 5) { errors.push('Line ' + (i + 1) + ' needs 5 fields: ' + line); return; }
+    var last = parts[0], first = parts[1], members = parts.slice(2, 5);
+    if (members.some(function (m) { return !m; })) { errors.push('Line ' + (i + 1) + ' has a blank committee member'); return; }
+    var ids = members.map(fid);
+    if (new Set(ids).size !== 3) { errors.push('Line ' + (i + 1) + ' lists the same person twice'); return; }
+    var id = c.slug(last + '-' + first), n = 1;
+    while (seenIds[id]) id = c.slug(last + '-' + first) + '-' + (++n);
+    seenIds[id] = 1;
+    var old = (S().data.exams || {})[id];
+    exams[id] = { last: last, first: first, members: ids, blackouts: (old && old.blackouts) || [], note: (old && old.note) || '' };
+  });
+  return { faculty: faculty, exams: exams, errors: errors };
+}
+
+/* ================================================================= tab: dashboard */
+
+function facLink(f) {
+  return location.origin + location.pathname + '#/f/' + f.token;
+}
+
+function tabDash(body) {
+  var c = C(), h = c.h, S_ = S(), res = S_.res;
+  body.appendChild(c.progressCard());
+
+  /* --- what is blocking things --- */
+  var exams = c.examList();
+  var waiting = [], impossible = [], contention = [];
+  exams.forEach(function (e) {
+    if (res.slotOf[e.id]) return;
+    var un = (e.members || []).filter(function (m) { return !c.submitted(m); });
+    if (un.length) waiting.push({ e: e, who: un });
+    else if (res.diag[e.id] && res.diag[e.id].common === 0) impossible.push(e);
+    else contention.push(e);
+  });
+
+  var nudge = {};
+  waiting.forEach(function (w) { w.who.forEach(function (m) { nudge[m] = (nudge[m] || 0) + 1; }); });
+  impossible.forEach(function (e) {
+    var b = res.diag[e.id].blame;
+    var top = Object.keys(b).sort(function (x, y) { return b[y] - b[x]; })[0];
+    if (top && b[top] > 0) nudge[top] = (nudge[top] || 0) + 1;
+  });
+  var rank = Object.keys(nudge).sort(function (a, b) { return nudge[b] - nudge[a]; });
+
+  if (rank.length) {
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: 'Who to chase, in order' }),
+      h('p', { class: 'sub', text: 'Each person is listed with the number of exams currently held up by them alone. Chasing the top of this list clears the most exams per email.' }),
+      h('ul', { class: 'clean' }, rank.slice(0, 12).map(function (fid) {
+        var f = S_.data.faculty[fid] || { name: fid };
+        var sub = c.submitted(fid);
+        return h('li', { class: 'row' }, [
+          h('b', { text: String(nudge[fid]), style: 'min-width:1.6rem;text-align:right' }),
+          h('span', { text: f.name }),
+          sub ? h('span', { class: 'pill warn', text: 'submitted, but too little open' })
+              : h('span', { class: 'pill bad', text: 'no response yet' }),
+          h('span', { class: 'spacer' }),
+          h('button', { class: 'btn sm', text: 'Copy link', onclick: function () { c.copyText(facLink(Object.assign({ id: fid }, f))).then(function () { c.toast('Link copied'); }); } }),
+          f.email ? h('a', { class: 'btn sm', href: mailtoFor(fid), text: 'Email' }) : null
+        ]);
+      }))
+    ]));
+  }
+
+  if (impossible.length) {
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: 'Exams with no workable time (' + impossible.length + ')' }),
+      h('p', { class: 'sub', text: 'All three members have submitted, but there is no 90-minute window where all three are free.' }),
+      h('ul', { class: 'clean' }, impossible.map(function (e) {
+        var b = res.diag[e.id].blame;
+        var order = Object.keys(b).sort(function (x, y) { return b[y] - b[x]; });
+        return h('li', {}, [
+          h('div', { class: 'row' }, [h('b', { text: c.examName(e) }), h('span', { class: 'spacer' }),
+            h('span', { class: 'pill bad', text: 'no common window' })]),
+          h('div', { class: 'sub', text: order.map(function (m) {
+            return c.facName(m) + (b[m] ? ' — alone blocks ' + b[m] + ' otherwise-workable slot' + (b[m] === 1 ? '' : 's') : '');
+          }).join(' · ') })
+        ]);
+      }))
+    ]));
+  }
+
+  if (contention.length) {
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: 'Squeezed out by other exams (' + contention.length + ')' }),
+      h('p', { class: 'sub', text: 'A common window exists, but every one of them is taken by another exam sharing a member. Unpinning an exam, or asking one member for a little more room, usually clears these.' }),
+      h('ul', { class: 'clean' }, contention.map(function (e) {
+        return h('li', { class: 'row' }, [h('b', { text: c.examName(e) }),
+          h('span', { class: 'sub', text: (res.diag[e.id].common) + ' common window' + (res.diag[e.id].common === 1 ? '' : 's') + ', all occupied' }),
+          h('span', { class: 'spacer' }),
+          h('button', { class: 'btn sm', text: 'Place by hand…', onclick: function () { moveDialog(e); } })]);
+      }))
+    ]));
+  }
+
+  /* --- response tracker --- */
+  var facs = c.facList();
+  body.appendChild(h('div', { class: 'card' }, [
+    h('div', { class: 'row' }, [
+      h('h2', { text: 'Faculty', style: 'margin:0' }), h('span', { class: 'spacer' }),
+      h('button', { class: 'btn sm', text: 'Copy every link', onclick: function () {
+        var tsv = facs.map(function (f) { return [f.name, f.email || '', facLink(f)].join('\t'); }).join('\n');
+        c.copyText('Name\tEmail\tPersonal link\n' + tsv).then(function () { c.toast('Copied ' + facs.length + ' rows — paste into a sheet for a mail merge'); });
+      } }),
+      h('button', { class: 'btn sm', text: 'Email everyone who hasn’t replied', onclick: function () { bulkMail(facs.filter(function (f) { return !c.submitted(f.id); })); } })
+    ]),
+    facTable(facs)
+  ]));
+}
+
+function facTable(facs) {
+  var c = C(), h = c.h, S_ = S(), res = S_.res;
+  var cpd = res.cpd, total = res.days.length * cpd;
+  var rows = facs.map(function (f) {
+    var a = S_.data.avail[f.id];
+    var open = 0;
+    if (a && a.days) res.days.forEach(function (d) { var s = a.days[d.key] || ''; for (var i = 0; i < s.length; i++) if (s[i] === '1') open++; });
+    var pct = total ? Math.round(open / total * 100) : 0;
+    var mine = c.examList().filter(function (e) { return (e.members || []).indexOf(f.id) >= 0; });
+    var placed = mine.filter(function (e) { return res.slotOf[e.id]; }).length;
+    return h('tr', {}, [
+      h('td', {}, [h('b', { text: f.name })]),
+      h('td', {}, [c.submitted(f.id) ? h('span', { class: 'pill ok', text: 'submitted' }) : h('span', { class: 'pill bad', text: 'no reply' })]),
+      h('td', { class: 'num', text: c.submitted(f.id) ? pct + '%' : '—' }),
+      h('td', { class: 'num', text: placed + ' / ' + mine.length }),
+      h('td', { class: 'sub', text: a && a.updated ? new Date(a.updated).toLocaleDateString() : '' }),
+      h('td', { style: 'white-space:nowrap' }, [
+        h('button', { class: 'btn sm', text: 'Link', onclick: function () { c.copyText(facLink(f)).then(function () { c.toast('Copied'); }); } }),
+        h('button', { class: 'btn sm ghost', text: 'Open', onclick: function () { location.hash = '#/f/' + f.token; } })
+      ])
+    ]);
+  });
+  return h('div', { class: 'tablescroll' }, [h('table', { class: 'data' }, [
+    h('thead', {}, [h('tr', {}, ['Name', 'Status', 'Open', 'Exams placed', 'Updated', ''].map(function (t) { return h('th', { text: t }); }))]),
+    h('tbody', {}, rows)
+  ])]);
+}
+
+function mailtoFor(fid) {
+  var c = C(), f = S().data.faculty[fid];
+  var title = (S().data.meta && S().data.meta.title) || 'Candidacy exams';
+  var body = 'Hi ' + f.name + ',\n\n' +
+    'We are scheduling this autumn\'s candidacy exams. Please open your personal link and grey out the times you are NOT available:\n\n' +
+    facLink(Object.assign({ id: fid }, f)) + '\n\n' +
+    'Everything starts open, so you only need to block what does not work. The page shows your committees filling in live as others reply.\n\nThank you.';
+  return 'mailto:' + encodeURIComponent(f.email || '') + '?subject=' + encodeURIComponent(title + ' — your availability') + '&body=' + encodeURIComponent(body);
+}
+
+function bulkMail(list) {
+  var c = C(), h = c.h;
+  if (!list.length) { c.toast('Everyone has replied'); return; }
+  var withEmail = list.filter(function (f) { return f.email; });
+  var body = h('div', {}, [
+    h('p', { class: 'sub', text: list.length + ' people have not submitted. ' + withEmail.length + ' of them have an email address on file.' }),
+    h('p', { class: 'sub', text: 'Personal links differ per person, so a single group email will not work. Copy the table below into a spreadsheet and mail-merge it, or send them one at a time.' }),
+    h('textarea', { readonly: true, style: 'min-height:200px', text: 'Name\tEmail\tPersonal link\n' + list.map(function (f) { return [f.name, f.email || '', facLink(f)].join('\t'); }).join('\n') })
+  ]);
+  c.modal('Chase the missing replies', body, [
+    { text: 'Copy table', primary: true, fn: function () { c.copyText(c.$('#modal-body textarea').value).then(function () { c.toast('Copied'); }); return true; } }
+  ]);
+}
+
+/* ================================================================= tab: schedule */
+
+function tabSched(body) {
+  var c = C(), h = c.h, S_ = S(), res = S_.res;
+  var exams = c.examList();
+  var byDay = {};
+  exams.forEach(function (e) {
+    var s = res.slotOf[e.id]; if (!s) return;
+    (byDay[s.dayKey] = byDay[s.dayKey] || []).push({ e: e, s: s });
+  });
+  var dayKeys = Object.keys(byDay).sort();
+
+  body.appendChild(h('div', { class: 'card row' }, [
+    h('h2', { text: 'Schedule', style: 'margin:0' }),
+    h('span', { class: 'sub', text: Object.keys(res.slotOf).length + ' placed on ' + dayKeys.length + ' days' }),
+    h('span', { class: 'spacer' }),
+    h('button', { class: 'btn sm', text: 'Pin everything', onclick: pinAll }),
+    h('button', { class: 'btn sm', text: 'Unpin everything', onclick: function () { db().put(root() + '/locks', null).then(function () { c.toast('All unpinned'); }); } }),
+    h('button', { class: 'btn sm', text: 'Export CSV', onclick: exportCsv }),
+    h('button', { class: 'btn sm', text: 'Export calendar (.ics)', onclick: exportIcs }),
+    h('button', { class: 'btn sm ghost', text: 'Print', onclick: function () { window.print(); } })
+  ]));
+
+  if (res.lockConflicts.length) {
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: 'Pinned exams that no longer fit' }),
+      h('ul', { class: 'clean' }, res.lockConflicts.map(function (lc) {
+        var e = S_.data.exams[lc.id] || {};
+        return h('li', { class: 'row' }, [h('b', { text: c.examName(Object.assign({ id: lc.id }, e)) }),
+          h('span', { class: 'sub', text: lc.why }), h('span', { class: 'spacer' }),
+          h('button', { class: 'btn sm danger', text: 'Unpin', onclick: function () { db().put(root() + '/locks/' + lc.id, null); } })]);
+      }))
+    ]));
+  }
+
+  if (!dayKeys.length) { body.appendChild(h('div', { class: 'card empty', text: 'Nothing is scheduled yet.' })); return; }
+
+  dayKeys.forEach(function (k) {
+    var list = byDay[k].sort(function (a, b) { return a.s.startMin - b.s.startMin; });
+    body.appendChild(h('div', { class: 'card' }, [
+      h('h2', { text: c.fmtDayLong(k) }),
+      h('div', { class: 'tablescroll', style: 'max-height:none' }, [h('table', { class: 'data' }, [
+        h('tbody', {}, list.map(function (x) {
+          var locked = !!(S_.data.locks || {})[x.e.id];
+          return h('tr', {}, [
+            h('td', { style: 'white-space:nowrap' }, [h('b', { text: c.fmtTime(x.s.startMin) + ' – ' + c.fmtTime(x.s.endMin) })]),
+            h('td', {}, [h('b', { text: c.examName(x.e) })]),
+            h('td', { class: 'sub', text: (x.e.members || []).map(c.facName).join(', ') }),
+            h('td', { style: 'white-space:nowrap' }, [
+              h('button', { class: 'btn sm' + (locked ? ' primary' : ''), title: locked ? 'pinned — the solver will not move it' : 'pin to this time',
+                text: locked ? 'Pinned' : 'Pin', onclick: function () { togglePin(x.e, x.s); } }),
+              h('button', { class: 'btn sm ghost', text: 'Move…', onclick: function () { moveDialog(x.e); } })
+            ])
+          ]);
+        }))
+      ])])
+    ]));
+  });
+}
+
+function togglePin(e, s) {
+  var locks = S().data.locks || {};
+  if (locks[e.id]) db().put(root() + '/locks/' + e.id, null);
+  else db().put(root() + '/locks/' + e.id, { dayKey: s.dayKey, startMin: s.startMin, at: Date.now() });
+}
+
+function pinAll() {
+  var c = C(), res = S().res, payload = {};
+  Object.keys(res.slotOf).forEach(function (id) {
+    payload[id] = { dayKey: res.slotOf[id].dayKey, startMin: res.slotOf[id].startMin, at: Date.now() };
+  });
+  db().put(root() + '/locks', payload).then(function () { c.toast('Pinned ' + Object.keys(payload).length + ' exams'); });
+}
+
+function moveDialog(e) {
+  var c = C(), h = c.h, res = S().res;
+  var cands = res.cands[e.id] || [];
+  // which of those clash with another exam as currently placed
+  var taken = {};
+  c.examList().forEach(function (o) {
+    if (o.id === e.id) return;
+    var s = res.slotOf[o.id]; if (!s) return;
+    var shares = (o.members || []).some(function (m) { return (e.members || []).indexOf(m) >= 0; });
+    if (!shares) return;
+    res.slots.forEach(function (sl) {
+      if (sl.di === res.slots[s.slotId].di && Math.abs(sl.startMin - s.startMin) < res.settings.durationMin) taken[sl.id] = c.examName(o);
+    });
+  });
+
+  var body = h('div', {}, [
+    h('p', { class: 'sub', text: cands.length ? cands.length + ' windows work for all three members. Choosing one pins the exam there.' : 'There is no window where all three members are free. Ask one of them for more availability first.' }),
+    cands.length ? h('div', { class: 'tablescroll', style: 'max-height:50vh' }, [h('table', { class: 'data' }, [
+      h('tbody', {}, cands.map(function (sid) {
+        var sl = res.slots[sid];
+        return h('tr', {}, [
+          h('td', { text: c.fmtDay(sl.dayKey) }),
+          h('td', { text: c.fmtTime(sl.startMin) + ' – ' + c.fmtTime(sl.endMin) }),
+          h('td', {}, [taken[sid] ? h('span', { class: 'pill warn', text: 'clashes with ' + taken[sid] }) : h('span', { class: 'pill ok', text: 'free' })]),
+          h('td', {}, [h('button', { class: 'btn sm', text: 'Pin here', onclick: function () {
+            db().put(root() + '/locks/' + e.id, { dayKey: sl.dayKey, startMin: sl.startMin, at: Date.now() })
+              .then(function () { c.toast('Pinned'); c.closeModal(); });
+          } })])
+        ]);
+      }))
+    ])]) : null
+  ]);
+  c.modal('Place ' + c.examName(e), body, []);
+}
+
+/* ================================================================= tab: exams */
+
+function tabExams(body) {
+  var c = C(), h = c.h, S_ = S(), res = S_.res;
+  var exams = c.examList();
+  body.appendChild(h('div', { class: 'card' }, [
+    h('div', { class: 'row' }, [
+      h('h2', { text: 'Exams (' + exams.length + ')', style: 'margin:0' }), h('span', { class: 'spacer' }),
+      h('button', { class: 'btn sm', text: 'Re-import roster…', onclick: importDialog })
+    ]),
+    h('div', { class: 'tablescroll' }, [h('table', { class: 'data' }, [
+      h('thead', {}, [h('tr', {}, ['Student', 'Committee', 'Constraints', 'Status', ''].map(function (t) { return h('th', { text: t }); }))]),
+      h('tbody', {}, exams.map(function (e) {
+        var s = res.slotOf[e.id];
+        var un = (e.members || []).filter(function (m) { return !c.submitted(m); });
+        var status = s ? h('span', { class: 'pill ok', text: c.fmtDay(s.dayKey) + ' ' + c.fmtTime(s.startMin) })
+          : un.length ? h('span', { class: 'pill mute', text: 'waiting on ' + un.map(c.facName).join(', ') })
+          : (res.diag[e.id].common === 0 ? h('span', { class: 'pill bad', text: 'no common window' }) : h('span', { class: 'pill warn', text: 'squeezed out' }));
+        var bl = e.blackouts || [];
+        return h('tr', {}, [
+          h('td', {}, [h('b', { text: c.examName(e) })]),
+          h('td', { class: 'sub', text: (e.members || []).map(c.facName).join(', ') }),
+          h('td', { class: 'sub' }, [
+            bl.length ? h('span', { text: bl.map(describeBlackout).join('; ') }) : h('span', { class: 'sub', text: '—' })
+          ]),
+          h('td', {}, [status]),
+          h('td', { style: 'white-space:nowrap' }, [
+            h('button', { class: 'btn sm ghost', text: 'Constraints…', onclick: function () { blackoutDialog(e); } }),
+            h('button', { class: 'btn sm ghost', text: 'Place…', onclick: function () { moveDialog(e); } })
+          ])
+        ]);
+      }))
+    ])])
+  ]));
+}
+
+function describeBlackout(b) {
+  var c = C();
+  var d = b.from === b.to ? c.fmtDay(b.from) : c.fmtDay(b.from) + '–' + c.fmtDay(b.to);
+  var t = (b.fromMin != null || b.toMin != null)
+    ? ' ' + c.fmtTime(b.fromMin != null ? b.fromMin : 0) + '–' + c.fmtTime(b.toMin != null ? b.toMin : 1440) : '';
+  return (b.label ? b.label + ': ' : '') + d + t;
+}
+
+function blackoutDialog(e) {
+  var c = C(), h = c.h, st = c.settings();
+  var list = (e.blackouts || []).slice();
+  var listHost = h('div');
+  function draw() {
+    listHost.textContent = '';
+    if (!list.length) listHost.appendChild(h('p', { class: 'sub', text: 'No constraints — any workable window may be used.' }));
+    list.forEach(function (b, i) {
+      listHost.appendChild(h('div', { class: 'row', style: 'padding:.3rem 0;border-bottom:1px solid var(--line)' }, [
+        h('span', { text: describeBlackout(b) }), h('span', { class: 'spacer' }),
+        h('button', { class: 'btn sm danger', text: 'Remove', onclick: function () { list.splice(i, 1); draw(); } })
+      ]));
+    });
+  }
+  draw();
+  var body = h('div', {}, [
+    h('p', { class: 'sub', text: 'Times this student cannot sit the exam. The solver treats these as hard blocks.' }),
+    listHost,
+    h('h3', { style: 'margin-top:1rem', text: 'Add a constraint' }),
+    h('label', { class: 'field' }, [h('span', { text: 'Label (optional)' }), h('input', { type: 'text', id: 'bo-label', placeholder: 'e.g. conference travel', style: 'width:100%' })]),
+    h('div', { class: 'row' }, [
+      h('label', { class: 'field' }, [h('span', { text: 'From date' }), h('input', { type: 'date', id: 'bo-a', value: st.startDate, min: st.startDate, max: st.endDate })]),
+      h('label', { class: 'field' }, [h('span', { text: 'To date' }), h('input', { type: 'date', id: 'bo-b', value: st.startDate, min: st.startDate, max: st.endDate })])
+    ]),
+    h('label', { class: 'field' }, [
+      h('span', { text: 'Time of day' }),
+      h('div', { class: 'row' }, [
+        h('label', { class: 'sub' }, [h('input', { type: 'checkbox', id: 'bo-allday', checked: true, onchange: function (ev) {
+          c.$('#bo-t1').disabled = ev.target.checked; c.$('#bo-t2').disabled = ev.target.checked;
+        } }), document.createTextNode(' all day')]),
+        c.timeSelect('bo-t1', st, st.dayStartMin), c.timeSelect('bo-t2', st, st.dayEndMin)
+      ])
+    ])
+  ]);
+  setTimeout(function () { var a = c.$('#bo-t1'), b = c.$('#bo-t2'); if (a) a.disabled = true; if (b) b.disabled = true; }, 0);
+
+  c.modal('Constraints — ' + c.examName(e), body, [
+    { text: 'Add', fn: function () {
+      var a = c.$('#bo-a').value, b = c.$('#bo-b').value;
+      if (!a || !b || b < a) { c.toast('Check the dates'); return true; }
+      var rec = { from: a, to: b, label: c.$('#bo-label').value.trim() };
+      if (!c.$('#bo-allday').checked) { rec.fromMin = +c.$('#bo-t1').value; rec.toMin = +c.$('#bo-t2').value; }
+      list.push(rec); draw();
+      c.$('#bo-label').value = '';
+      return true;
+    } },
+    { text: 'Save', primary: true, fn: function () {
+      db().put(root() + '/exams/' + e.id + '/blackouts', list.length ? list : null)
+        .then(function () { c.toast('Saved'); });
+    } }
+  ]);
+}
+
+function importDialog() {
+  var c = C(), h = c.h;
+  var body = h('div', {}, [
+    h('p', { class: 'sub', text: 'Paste the roster again to add or correct entries. Faculty who keep the same name keep the same personal link. Availability already collected is untouched.' }),
+    h('textarea', { id: 'imp', style: 'min-height:240px', text: c.examList().map(function (e) {
+      return [e.last, e.first].concat((e.members || []).map(c.facName)).join(', ');
+    }).join('\n') })
+  ]);
+  c.modal('Re-import roster', body, [
+    { text: 'Replace roster', primary: true, fn: function () {
+      var p = parseRoster(c.$('#imp').value);
+      if (p.errors.length) { c.toast(p.errors[0], 6000); return true; }
+      db().patch(root(), { faculty: p.faculty, exams: p.exams }).then(function () { c.toast('Roster updated'); });
+    } }
+  ]);
+}
+
+/* ================================================================= tab: faculty */
+
+function tabFaculty(body) {
+  var c = C(), h = c.h, S_ = S();
+  var facs = c.facList();
+  body.appendChild(h('div', { class: 'card' }, [
+    h('div', { class: 'row' }, [
+      h('h2', { text: 'Faculty (' + facs.length + ')', style: 'margin:0' }), h('span', { class: 'spacer' }),
+      h('button', { class: 'btn sm', text: 'Paste email addresses…', onclick: emailDialog })
+    ]),
+    h('div', { class: 'tablescroll' }, [h('table', { class: 'data' }, [
+      h('thead', {}, [h('tr', {}, ['Name', 'Email', 'Status', 'Committees', 'Personal link', ''].map(function (t) { return h('th', { text: t }); }))]),
+      h('tbody', {}, facs.map(function (f) {
+        var n = c.examList().filter(function (e) { return (e.members || []).indexOf(f.id) >= 0; }).length;
+        return h('tr', {}, [
+          h('td', {}, [h('input', { type: 'text', value: f.name, style: 'width:150px', onchange: function (ev) {
+            db().patch(root() + '/faculty/' + f.id, { name: ev.target.value.trim() }); } })]),
+          h('td', {}, [h('input', { type: 'email', value: f.email || '', style: 'width:190px', placeholder: 'name@uchicago.edu', onchange: function (ev) {
+            db().patch(root() + '/faculty/' + f.id, { email: ev.target.value.trim() }); } })]),
+          h('td', {}, [c.submitted(f.id) ? h('span', { class: 'pill ok', text: 'submitted' }) : h('span', { class: 'pill bad', text: 'no reply' })]),
+          h('td', { class: 'num', text: String(n) }),
+          h('td', { class: 'mono sub', text: '#/f/' + f.token }),
+          h('td', { style: 'white-space:nowrap' }, [
+            h('button', { class: 'btn sm', text: 'Copy', onclick: function () { c.copyText(facLink(f)).then(function () { c.toast('Copied'); }); } }),
+            f.email ? h('a', { class: 'btn sm', href: mailtoFor(f.id), text: 'Email' }) : null,
+            h('button', { class: 'btn sm ghost', text: 'Reset', title: 'clear this person’s availability', onclick: function () {
+              if (!confirm('Clear ' + f.name + '’s availability? They will need to fill it in again.')) return;
+              db().put(root() + '/avail/' + f.id, null); } })
+          ])
+        ]);
+      }))
+    ])])
+  ]));
+}
+
+function emailDialog() {
+  var c = C(), h = c.h;
+  var body = h('div', {}, [
+    h('p', { class: 'sub', text: 'One per line: Name, email. Names are matched loosely against the roster.' }),
+    h('textarea', { id: 'em', style: 'min-height:220px', placeholder: 'Anderson, john.anderson@uchicago.edu' })
+  ]);
+  c.modal('Paste email addresses', body, [
+    { text: 'Apply', primary: true, fn: function () {
+      var lines = c.$('#em').value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+      var facs = c.facList(), patch = {}, hits = 0, misses = [];
+      lines.forEach(function (l) {
+        var m = l.match(/^(.*?)[,;\t]\s*(\S+@\S+)$/);
+        if (!m) { misses.push(l); return; }
+        var nm = m[1].trim().toLowerCase(), em = m[2].trim();
+        var f = facs.filter(function (x) { return x.name.toLowerCase() === nm; })[0]
+             || facs.filter(function (x) { return x.name.toLowerCase().indexOf(nm) >= 0 || nm.indexOf(x.name.toLowerCase()) >= 0; })[0];
+        if (!f) { misses.push(l); return; }
+        patch[f.id + '/email'] = em; hits++;
+      });
+      db().patch(root() + '/faculty', patch).then(function () {
+        c.toast(hits + ' matched' + (misses.length ? ', ' + misses.length + ' not recognised' : ''), 5000);
+      });
+    } }
+  ]);
+}
+
+/* ================================================================= tab: settings */
+
+function tabSettings(body) {
+  var c = C(), h = c.h, S_ = S(), st = c.settings();
+  var ex = (st.excludeDates || []).join(', ');
+
+  body.appendChild(h('div', { class: 'card' }, [
+    h('h2', { text: 'Scheduling window' }),
+    h('div', { class: 'grid2' }, [
+      h('div', {}, [
+        h('label', { class: 'field' }, [h('span', { text: 'First day' }), h('input', { type: 'date', id: 's-a', value: st.startDate })]),
+        h('label', { class: 'field' }, [h('span', { text: 'Last day' }), h('input', { type: 'date', id: 's-b', value: st.endDate })]),
+        h('label', { class: 'field' }, [h('span', { text: 'Skip these dates (comma separated, YYYY-MM-DD)' }),
+          h('input', { type: 'text', id: 's-ex', value: ex, style: 'width:100%' })]),
+        h('label', { class: 'sub' }, [h('input', { type: 'checkbox', id: 's-wd', checked: st.weekdaysOnly !== false }), document.createTextNode(' weekdays only')])
+      ]),
+      h('div', {}, [
+        h('label', { class: 'field' }, [h('span', { text: 'Day starts' }), c.timeSelect('s-ds', { dayStartMin: 6 * 60, dayEndMin: 22 * 60 }, st.dayStartMin)]),
+        h('label', { class: 'field' }, [h('span', { text: 'Day ends' }), c.timeSelect('s-de', { dayStartMin: 6 * 60, dayEndMin: 22 * 60 }, st.dayEndMin)]),
+        h('label', { class: 'field' }, [h('span', { text: 'Exam length (minutes)' }), h('input', { type: 'number', id: 's-dur', value: st.durationMin, min: '30', step: '30', style: 'width:100px' })]),
+        h('label', { class: 'field' }, [h('span', { text: 'Exams may start every' }),
+          h('select', { id: 's-step' }, [30, 60, 90, 120].map(function (v) { return h('option', { value: String(v), text: v + ' min', selected: v === st.slotStepMin }); }))])
+      ])
+    ]),
+    h('div', { class: 'row' }, [
+      h('button', { class: 'btn primary', text: 'Save window', onclick: function () {
+        var next = {
+          startDate: c.$('#s-a').value, endDate: c.$('#s-b').value,
+          dayStartMin: +c.$('#s-ds').value, dayEndMin: +c.$('#s-de').value,
+          durationMin: +c.$('#s-dur').value, slotStepMin: +c.$('#s-step').value,
+          weekdaysOnly: c.$('#s-wd').checked,
+          excludeDates: c.$('#s-ex').value.split(/[,\s]+/).filter(function (x) { return /^\d{4}-\d{2}-\d{2}$/.test(x); })
+        };
+        if (next.endDate < next.startDate) { c.toast('End date is before the start'); return; }
+        if (next.dayEndMin - next.dayStartMin < next.durationMin) { c.toast('The day is shorter than one exam'); return; }
+        db().put(root() + '/settings', next).then(function () { c.toast('Saved — availability grids now cover the new window'); });
+      } }),
+      h('span', { class: 'sub', text: 'Changing the window keeps availability already entered for days that are still in range.' })
+    ])
+  ]));
+
+  body.appendChild(h('div', { class: 'card' }, [
+    h('h2', { text: 'Event' }),
+    h('label', { class: 'field' }, [h('span', { text: 'Title' }), h('input', { type: 'text', id: 's-title', value: (S_.data.meta && S_.data.meta.title) || '', style: 'width:100%;max-width:420px', onchange: function (ev) { db().patch(root() + '/meta', { title: ev.target.value }); } })]),
+    h('label', { class: 'field' }, [h('span', { text: 'Change organiser passphrase' }),
+      h('div', { class: 'row' }, [h('input', { type: 'password', id: 's-pin', placeholder: 'new passphrase', style: 'width:220px' }),
+        h('button', { class: 'btn sm', text: 'Change', onclick: function () {
+          var v = c.$('#s-pin').value; if (v.length < 4) { c.toast('Too short'); return; }
+          db().patch(root() + '/meta', { adminHash: c.sha(v) }).then(function () { localStorage.setItem('cs.pin', v); c.toast('Changed'); });
+        } })])]),
+    h('h3', { style: 'margin-top:1.2rem', text: 'Reset' }),
+    h('div', { class: 'row' }, [
+      h('button', { class: 'btn sm danger', text: 'Clear all availability', onclick: function () {
+        if (!confirm('Delete every faculty member’s availability? The roster and links are kept.')) return;
+        db().put(root() + '/avail', null).then(function () { c.toast('Cleared'); });
+      } }),
+      h('button', { class: 'btn sm danger', text: 'Delete the whole event', onclick: function () {
+        if (!confirm('Delete everything — roster, links, availability, schedule?')) return;
+        if (!confirm('Really? This cannot be undone.')) return;
+        db().put(root(), null).then(function () { location.reload(); });
+      } })
+    ])
+  ]));
+}
+
+/* =================================================================== export */
+
+function scheduleRows() {
+  var c = C(), res = S().res;
+  return c.examList().map(function (e) {
+    var s = res.slotOf[e.id];
+    return {
+      last: e.last, first: e.first,
+      members: (e.members || []).map(c.facName),
+      day: s ? s.dayKey : '', start: s ? c.fmtTime(s.startMin) : '', end: s ? c.fmtTime(s.endMin) : '',
+      startMin: s ? s.startMin : null, endMin: s ? s.endMin : null,
+      status: s ? 'scheduled' : 'unscheduled'
+    };
+  });
+}
+
+function download(name, mime, text) {
+  var b = new Blob([text], { type: mime });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+function exportCsv() {
+  var rows = scheduleRows();
+  var q = function (s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; };
+  var out = ['Last Name,First Name,Date,Start,End,Member 1,Member 2,Member 3,Status'];
+  rows.sort(function (a, b) {
+    if (a.status !== b.status) return a.status === 'scheduled' ? -1 : 1;   // unscheduled last
+    if (a.day !== b.day) return a.day < b.day ? -1 : 1;
+    if (a.startMin !== b.startMin) return (a.startMin || 0) - (b.startMin || 0);
+    return (a.last || '').localeCompare(b.last || '');
+  });
+  rows.forEach(function (r) {
+    out.push([r.last, r.first, r.day, r.start, r.end, r.members[0] || '', r.members[1] || '', r.members[2] || '', r.status].map(q).join(','));
+  });
+  download('candidacy-schedule.csv', 'text/csv', out.join('\n'));
+  C().toast('CSV downloaded');
+}
+
+function exportIcs() {
+  var c = C(), rows = scheduleRows().filter(function (r) { return r.status === 'scheduled'; });
+  function stamp(dayKey, min) {
+    var d = Solver.parseYmd(dayKey);
+    return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') +
+      'T' + String(Math.floor(min / 60)).padStart(2, '0') + String(min % 60).padStart(2, '0') + '00';
+  }
+  // RFC 5545 reserves these inside TEXT values
+  function tx(v) { return String(v).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+  var now = new Date();
+  var dtstamp = now.getUTCFullYear() + String(now.getUTCMonth() + 1).padStart(2, '0') + String(now.getUTCDate()).padStart(2, '0') +
+    'T' + String(now.getUTCHours()).padStart(2, '0') + String(now.getUTCMinutes()).padStart(2, '0') + String(now.getUTCSeconds()).padStart(2, '0') + 'Z';
+  var out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//candidacy-scheduler//EN', 'CALSCALE:GREGORIAN'];
+  rows.forEach(function (r, i) {
+    // Times are written without a zone, so each attendee's calendar shows the
+    // same wall-clock time the schedule was built in.
+    out.push('BEGIN:VEVENT',
+      'UID:cand-' + i + '-' + r.day + '-' + r.startMin + '@candidacy-scheduler',
+      'DTSTAMP:' + dtstamp,
+      'DTSTART:' + stamp(r.day, r.startMin),
+      'DTEND:' + stamp(r.day, r.endMin),
+      'SUMMARY:' + tx('Candidacy exam — ' + r.first + ' ' + r.last),
+      'DESCRIPTION:' + tx('Committee: ' + r.members.join(', ')),
+      'END:VEVENT');
+  });
+  out.push('END:VCALENDAR');
+  download('candidacy-exams.ics', 'text/calendar', out.join('\r\n'));
+  c.toast(rows.length + ' events downloaded');
+}
+
+})();
