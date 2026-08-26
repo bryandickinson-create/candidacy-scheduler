@@ -104,6 +104,15 @@ var S = {
   pendingDays: {}    // local unsaved availability edits
 };
 
+/* Everything lives under candidacy/<eventId>, so a second id is a second,
+   completely separate board. ?event=<id> overrides config for one visit. */
+function resolveEventId() {
+  var m = /[?&]event=([A-Za-z0-9_-]{1,32})/.exec(location.search);
+  if (m) return m[1];
+  return (window.APP_CONFIG && window.APP_CONFIG.eventId) || '2026';
+}
+function isRehearsal() { return S.eventId !== '2026'; }
+
 function dbUrl() {
   return (window.APP_CONFIG && window.APP_CONFIG.databaseURL) || localStorage.getItem('cs.db') || '';
 }
@@ -229,7 +238,7 @@ function connect() {
   var url = dbUrl();
   if (!url) { Admin.renderSetup(); return; }
   S.db = wrapWrites(new FB(url));
-  S.eventId = (window.APP_CONFIG && window.APP_CONFIG.eventId) || '2026';
+  S.eventId = resolveEventId();
   S.root = 'candidacy/' + S.eventId;
 
   S.db.get(S.root).then(function (data) {
@@ -434,6 +443,7 @@ function topbar() {
         document.createTextNode((S.data.meta && S.data.meta.title) || 'Candidacy Exam Scheduling'),
         h('small', { text: fmtDay(st.startDate).replace(/^\w+ /, '') + ' – ' + fmtDay(st.endDate).replace(/^\w+ /, '') })
       ]),
+      isRehearsal() ? h('span', { class: 'pill bad', title: 'Separate practice board — not the real schedule', text: S.eventId.toUpperCase() }) : null,
       h('span', { class: 'conn' }, [h('i', { id: 'conn-dot', class: 'dot ' + (S.connected ? 'live' : '') }), h('span', { id: 'conn-label', text: S.connected ? 'live' : 'connecting…' })])
     ].concat(right))
   ]);

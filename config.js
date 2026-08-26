@@ -1,9 +1,15 @@
-/* Paste your Firebase Realtime Database URL here, then commit + deploy.
-   It looks like  https://your-project-default-rtdb.firebaseio.com
-   (or  https://your-project-default-rtdb.<region>.firebasedatabase.app )
-   Until this is filled in, the app falls back to whatever URL you enter on the
-   setup screen, which is stored only in your own browser. */
+/* Firebase Realtime Database that backs this app. */
 window.APP_CONFIG = {
   databaseURL: "https://candidacy-scheduler-default-rtdb.firebaseio.com",
-  eventId: "2026"
+
+  /* Which event this deployment serves. Everything lives under
+     candidacy/<eventId>, so two ids are two completely separate boards that
+     share one database.
+
+       "test"  — a throwaway board for clicking around. No organiser passphrase.
+       "2026"  — the real one.
+
+     Flip this to "2026" when you are ready to email people, and redeploy.
+     A ?event=<id> on the URL overrides this for a single visit. */
+  eventId: "test"
 };
