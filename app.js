@@ -719,11 +719,13 @@ function tabMe(wrap) {
 
   // ---- the grid ----
   var help = {}, helpFor = {};
+  // measure against the grid as it currently looks on screen, unsaved edits included
+  var localGrid = {};
+  days.forEach(function (d) { localGrid[d.key] = curDay(d.key); });
+  var myFree = Solver.freeMaskFrom(S.res, localGrid);
+  var windows = 0;
+  for (var wi = 0; wi < myFree.length; wi++) windows += myFree[wi];
   if (S.showHelp) {
-    // measure against the grid as it currently looks on screen, unsaved edits included
-    var localGrid = {};
-    days.forEach(function (d) { localGrid[d.key] = curDay(d.key); });
-    var myFree = Solver.freeMaskFrom(S.res, localGrid);
     mine.forEach(function (e) {
       var stx = examStatus(e);
       if (stx.kind !== 'stuck') return;
@@ -740,6 +742,17 @@ function tabMe(wrap) {
       h('button', { class: 'btn sm', onclick: function () { bulk('1'); }, text: 'Open everything' }),
       h('button', { class: 'btn sm', onclick: function () { bulk('0'); }, text: 'Block everything' }),
       h('button', { class: 'btn sm', onclick: openTemplate, text: 'Repeat a weekly commitment…' })
+    ]),
+    h('div', { class: 'hint' + (windows ? ' good' : '') }, [
+      h('b', { text: 'Exams need a ' + st.durationMin + '-minute block. ' }),
+      document.createTextNode('Scattered half hours do not help — a gap only counts if it is ' +
+        st.durationMin + ' minutes long with nothing in the middle, so leave whole mornings or ' +
+        'afternoons open wherever you can.'),
+      h('div', { style: 'margin-top:.4rem' }, [
+        windows
+          ? h('b', { text: 'Your calendar currently offers ' + windows + ' possible exam slot' + (windows === 1 ? '' : 's') + '.' })
+          : h('b', { text: 'Your calendar currently offers no ' + st.durationMin + '-minute slots at all.' })
+      ])
     ]),
     h('div', { class: 'legend' }, [
       h('span', {}, [h('i', { style: 'background:var(--free)' }), document.createTextNode('available')]),

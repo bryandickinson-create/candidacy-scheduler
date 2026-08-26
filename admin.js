@@ -282,6 +282,8 @@ function tabDash(body) {
     ]),
     facTable(facs)
   ]));
+
+  body.appendChild(exportCard());
 }
 
 function facTable(facs) {
@@ -372,7 +374,7 @@ function tabSched(body) {
       (groups.waiting.length + groups.stuck.length) + ' blocked' }),
     h('span', { class: 'spacer' }),
     groups.ready.length ? h('button', { class: 'btn sm primary', text: 'Suggest times for all ' + groups.ready.length + '…', onclick: suggestDialog }) : null,
-    h('button', { class: 'btn sm', text: 'Export CSV', onclick: exportCsv }),
+    h('button', { class: 'btn sm', text: 'Export CSV', onclick: exportBookings }),
     h('button', { class: 'btn sm', text: 'Export calendar (.ics)', onclick: exportIcs }),
     h('button', { class: 'btn sm ghost', text: 'Print', onclick: function () { window.print(); } })
   ]));
@@ -870,73 +872,196 @@ function tabSettings(body) {
 
 /* =================================================================== export */
 
-function scheduleRows() {
-  var c = C(), res = S().res;
-  return c.examList().map(function (e) {
-    var s = res.confirmed[e.id];
-    return {
-      last: e.last, first: e.first,
-      members: (e.members || []).map(c.facName),
-      day: s ? s.dayKey : '', start: s ? c.fmtTime(s.startMin) : '', end: s ? c.fmtTime(s.endMin) : '',
-      startMin: s ? s.startMin : null, endMin: s ? s.endMin : null,
-      status: s ? 'booked' : (((res.options[e.id] || []).length) ? 'ready to book' : 'blocked')
-    };
-  });
+function csv(rows) {
+  var q = function (v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; };
+  return rows.map(function (r) { return r.map(q).join(','); }).join('\r\n');
 }
 
 function download(name, mime, text) {
-  var b = new Blob([text], { type: mime });
+  var b = new Blob(['\ufeff' + text], { type: mime + ';charset=utf-8' });   // BOM so Excel reads UTF-8
   var a = document.createElement('a');
   a.href = URL.createObjectURL(b); a.download = name;
   document.body.appendChild(a); a.click();
-  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 
-function exportCsv() {
-  var rows = scheduleRows();
-  var q = function (s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; };
-  var out = ['Last Name,First Name,Date,Start,End,Member 1,Member 2,Member 3,Status'];
-  rows.sort(function (a, b) {
-    if ((a.status === 'booked') !== (b.status === 'booked')) return a.status === 'booked' ? -1 : 1;
-    if (a.day !== b.day) return a.day < b.day ? -1 : 1;
-    if (a.startMin !== b.startMin) return (a.startMin || 0) - (b.startMin || 0);
-    return (a.last || '').localeCompare(b.last || '');
+function stamp() {
+  var m = /(\d{4}-\d{2}-\d{2})/.exec(new Date().toISOString());
+  return m ? m[1] : 'export';
+}
+
+/* ---- 1. the bookings ---- */
+function bookingRows() {
+  var c = C(), res = S().res;
+  var out = c.examList().map(function (e) {
+    var b = res.confirmed[e.id], st = c.examStatus(e);
+    var ms = (e.members || []).map(c.facName);
+    return {
+      sortDay: b ? b.dayKey : '9999', sortMin: b ? b.startMin : 0,
+      row: [e.last, e.first, b ? b.dayKey : '', b ? c.fmtTime(b.startMin) : '', b ? c.fmtTime(b.endMin) : '',
+            ms[0] || '', ms[1] || '', ms[2] || '',
+            st.kind === 'confirmed' ? 'booked' : st.kind === 'ready' ? 'ready to book (' + st.options.length + ' times)'
+              : st.kind === 'waiting' ? 'waiting on ' + st.missing.map(c.facName).join('; ')
+              : (st.squeezed ? 'all workable times taken' : 'no time works for all three'),
+            c.considerationText(e) || '']
+    };
   });
-  rows.forEach(function (r) {
-    out.push([r.last, r.first, r.day, r.start, r.end, r.members[0] || '', r.members[1] || '', r.members[2] || '', r.status].map(q).join(','));
+  out.sort(function (a, b) { return a.sortDay < b.sortDay ? -1 : a.sortDay > b.sortDay ? 1 : a.sortMin - b.sortMin; });
+  return [['Last Name', 'First Name', 'Date', 'Start', 'End', 'Member 1', 'Member 2', 'Member 3',
+           'Status', 'Special considerations']].concat(out.map(function (x) { return x.row; }));
+}
+function exportBookings() { download('candidacy-schedule-' + stamp() + '.csv', 'text/csv', csv(bookingRows())); C().toast('Schedule downloaded'); }
+
+/* ---- 2. faculty response tracker ---- */
+function facultyRows() {
+  var c = C(), S_ = S(), res = S_.res, total = res.days.length * res.cpd;
+  var rows = [['Name', 'Email', 'Submitted', 'Last updated', 'Half-hours open', 'Percent open',
+               '90-min slots offered', 'Committees', 'Booked']];
+  c.facList().forEach(function (f) {
+    var a = S_.data.avail[f.id], open = 0;
+    if (a && a.days) res.days.forEach(function (d) {
+      var r = a.days[d.key] || '';
+      for (var i = 0; i < r.length; i++) if (r[i] === '1') open++;
+    });
+    var windows = 0;
+    if (a && a.days) {
+      var mask = Solver.freeMaskFrom(res, a.days);
+      for (var i2 = 0; i2 < mask.length; i2++) windows += mask[i2];
+    }
+    var mine = c.examList().filter(function (e) { return (e.members || []).indexOf(f.id) >= 0; });
+    rows.push([f.name, f.email || '', c.submitted(f.id) ? 'yes' : 'no',
+      a && a.updated ? new Date(a.updated).toISOString().slice(0, 10) : '',
+      c.submitted(f.id) ? open : '', c.submitted(f.id) ? Math.round(open / total * 100) + '%' : '',
+      c.submitted(f.id) ? windows : '',
+      mine.length, mine.filter(function (e) { return res.confirmed[e.id]; }).length]);
   });
-  download('candidacy-schedule.csv', 'text/csv', out.join('\n'));
-  C().toast('CSV downloaded');
+  return rows;
+}
+function exportFaculty() { download('candidacy-faculty-' + stamp() + '.csv', 'text/csv', csv(facultyRows())); C().toast('Faculty list downloaded'); }
+
+/* ---- 3. availability, as readable free blocks rather than 30-min cells ---- */
+function availabilityRows() {
+  var c = C(), S_ = S(), res = S_.res, st = c.settings();
+  var rows = [['Name', 'Date', 'Day', 'Free from', 'Free until', 'Length (min)', 'Fits an exam']];
+  c.facList().forEach(function (f) {
+    var a = S_.data.avail[f.id];
+    if (!a || !a.days) return;
+    res.days.forEach(function (d) {
+      var row = a.days[d.key] || '', i = 0;
+      while (i < res.cpd) {
+        if (row[i] !== '1') { i++; continue; }
+        var j = i;
+        while (j < res.cpd && row[j] === '1') j++;
+        var from = st.dayStartMin + i * Solver.CELL, to = st.dayStartMin + j * Solver.CELL;
+        rows.push([f.name, d.key, c.DOWFULL[Solver.parseYmd(d.key).getDay()],
+                   c.fmtTime(from), c.fmtTime(to), to - from, (to - from) >= st.durationMin ? 'yes' : 'no']);
+        i = j;
+      }
+    });
+  });
+  return rows;
+}
+function exportAvailability() { download('candidacy-availability-' + stamp() + '.csv', 'text/csv', csv(availabilityRows())); C().toast('Availability downloaded'); }
+
+/* ---- 4. every workable time per exam ---- */
+function optionRows() {
+  var c = C(), res = S().res;
+  var rows = [['Last Name', 'First Name', 'Committee', 'Date', 'Day', 'Start', 'End', 'Currently booked']];
+  c.examList().forEach(function (e) {
+    var booked = res.confirmed[e.id];
+    var list = booked ? [booked.slotId] : c.orderedOptions(e, res.options[e.id] || []);
+    list.forEach(function (sid) {
+      var sl = res.slots[sid];
+      rows.push([e.last, e.first, (e.members || []).map(c.facName).join('; '), sl.dayKey,
+                 c.DOWFULL[Solver.parseYmd(sl.dayKey).getDay()], c.fmtTime(sl.startMin), c.fmtTime(sl.endMin),
+                 booked ? 'yes' : '']);
+    });
+  });
+  return rows;
+}
+function exportOptions() { download('candidacy-possible-times-' + stamp() + '.csv', 'text/csv', csv(optionRows())); C().toast('Possible times downloaded'); }
+
+/* ---- 5. roster + considerations ---- */
+function rosterRows() {
+  var c = C(), res = S().res;
+  var rows = [['Last Name', 'First Name', 'Member 1', 'Member 2', 'Member 3', 'Preference', 'Blocked times', 'Note', 'Possible times']];
+  c.examList().forEach(function (e) {
+    var ms = (e.members || []).map(c.facName);
+    rows.push([e.last, e.first, ms[0] || '', ms[1] || '', ms[2] || '', e.prefer || '',
+      (e.blackouts || []).map(describeBlackout).join('; '), e.note || '',
+      res.confirmed[e.id] ? 'booked' : (res.options[e.id] || []).length]);
+  });
+  return rows;
+}
+function exportRoster() { download('candidacy-roster-' + stamp() + '.csv', 'text/csv', csv(rosterRows())); C().toast('Roster downloaded'); }
+
+/* ---- everything, staggered so the browser does not drop them ---- */
+function exportAll() {
+  var jobs = [exportBookings, exportRoster, exportFaculty, exportAvailability, exportOptions, exportIcs];
+  jobs.forEach(function (fn, i) { setTimeout(fn, i * 500); });
+  C().toast('Downloading ' + jobs.length + ' files — your browser may ask to allow multiple downloads', 6000);
 }
 
 function exportIcs() {
-  var c = C(), rows = scheduleRows().filter(function (r) { return r.status === 'booked'; });
-  function stamp(dayKey, min) {
+  var c = C(), res = S().res;
+  var rows = c.examList().filter(function (e) { return res.confirmed[e.id]; }).map(function (e) {
+    var b = res.confirmed[e.id];
+    return { e: e, b: b };
+  });
+  function stampAt(dayKey, min) {
     var d = Solver.parseYmd(dayKey);
     return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') +
       'T' + String(Math.floor(min / 60)).padStart(2, '0') + String(min % 60).padStart(2, '0') + '00';
   }
-  // RFC 5545 reserves these inside TEXT values
   function tx(v) { return String(v).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
   var now = new Date();
   var dtstamp = now.getUTCFullYear() + String(now.getUTCMonth() + 1).padStart(2, '0') + String(now.getUTCDate()).padStart(2, '0') +
     'T' + String(now.getUTCHours()).padStart(2, '0') + String(now.getUTCMinutes()).padStart(2, '0') + String(now.getUTCSeconds()).padStart(2, '0') + 'Z';
   var out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//candidacy-scheduler//EN', 'CALSCALE:GREGORIAN'];
-  rows.forEach(function (r, i) {
-    // Times are written without a zone, so each attendee's calendar shows the
-    // same wall-clock time the schedule was built in.
+  rows.forEach(function (r) {
+    // no time zone, so each attendee sees the same wall-clock time
     out.push('BEGIN:VEVENT',
-      'UID:cand-' + i + '-' + r.day + '-' + r.startMin + '@candidacy-scheduler',
+      'UID:cand-' + r.e.id + '-' + r.b.dayKey + '-' + r.b.startMin + '@candidacy-scheduler',
       'DTSTAMP:' + dtstamp,
-      'DTSTART:' + stamp(r.day, r.startMin),
-      'DTEND:' + stamp(r.day, r.endMin),
-      'SUMMARY:' + tx('Candidacy exam — ' + r.first + ' ' + r.last),
-      'DESCRIPTION:' + tx('Committee: ' + r.members.join(', ')),
+      'DTSTART:' + stampAt(r.b.dayKey, r.b.startMin),
+      'DTEND:' + stampAt(r.b.dayKey, r.b.endMin),
+      'SUMMARY:' + tx('Candidacy exam — ' + r.e.first + ' ' + r.e.last),
+      'DESCRIPTION:' + tx('Committee: ' + (r.e.members || []).map(c.facName).join(', ') +
+        (c.considerationText(r.e) ? '\n' + c.considerationText(r.e) : '')),
       'END:VEVENT');
   });
   out.push('END:VCALENDAR');
-  download('candidacy-exams.ics', 'text/calendar', out.join('\r\n'));
+  download('candidacy-exams-' + stamp() + '.ics', 'text/calendar', out.join('\r\n'));
   c.toast(rows.length + ' events downloaded');
 }
+
+/* the card shown on the dashboard */
+function exportCard() {
+  var c = C(), h = c.h, res = S().res;
+  var booked = c.examList().filter(function (e) { return res.confirmed[e.id]; }).length;
+  var items = [
+    ['Schedule', 'every exam with its booked time and status', exportBookings],
+    ['Roster & considerations', 'committees, preferences, blocked times, notes', exportRoster],
+    ['Faculty responses', 'who replied, how much they opened, slots offered', exportFaculty],
+    ['Availability', 'every free block each person gave, in plain rows', exportAvailability],
+    ['Possible times', 'every workable time for every exam', exportOptions],
+    ['Calendar (.ics)', booked + ' booked exam' + (booked === 1 ? '' : 's'), exportIcs]
+  ];
+  return h('div', { class: 'card' }, [
+    h('div', { class: 'row' }, [
+      h('h2', { text: 'Download data', style: 'margin:0' }),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn sm primary', text: 'Download everything', onclick: exportAll })
+    ]),
+    h('p', { class: 'sub', text: 'Everything is a snapshot of the board as it stands right now. CSVs open directly in Excel.' }),
+    h('div', { class: 'grid2', style: 'margin-top:10px' }, items.map(function (it) {
+      return h('div', { class: 'row', style: 'align-items:flex-start' }, [
+        h('div', { style: 'flex:1' }, [h('b', { text: it[0] }), h('div', { class: 'sub', text: it[1] })]),
+        h('button', { class: 'btn sm', text: 'CSV', onclick: it[2] })
+      ]);
+    }))
+  ]);
+}
+
 
 })();

@@ -63,7 +63,11 @@ schedules around. **Pin everything** once you are happy, then keep collecting.
 Per-student constraints ("cannot do the first two weeks of October") go in
 **Exams → Constraints**.
 
-Export **CSV** for the department, **.ics** for calendars, or **Print**.
+**Download data** on the dashboard exports the whole board as CSV — the
+schedule, the roster with everyone's considerations, the faculty response
+tracker, every free block each person gave, and every workable time for every
+exam — plus an `.ics` of the booked exams. "Download everything" takes the lot
+in one click.
 
 ## The one thing that decides whether this works
 
