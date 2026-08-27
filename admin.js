@@ -181,8 +181,15 @@ function parseRoster(text) {
     var id = c.slug(last + '-' + first), n = 1;
     while (seenIds[id]) id = c.slug(last + '-' + first) + '-' + (++n);
     seenIds[id] = 1;
-    var old = (S().data.exams || {})[id];
-    exams[id] = { last: last, first: first, members: ids, blackouts: (old && old.blackouts) || [], note: (old && old.note) || '' };
+    // Carry every organiser-entered field across a re-import. Anything added to
+    // an exam later must be listed here or a re-import silently discards it.
+    var old = (S().data.exams || {})[id] || {};
+    exams[id] = {
+      last: last, first: first, members: ids,
+      blackouts: old.blackouts || [],
+      note: old.note || '',
+      prefer: old.prefer || null
+    };
   });
   return { faculty: faculty, exams: exams, errors: errors };
 }

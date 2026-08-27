@@ -50,30 +50,21 @@ window.ROSTER_SEED = {
   ],
   "exams": [
     {
-      "last": "Juho",
-      "first": "Kim",
+      "last": "Acikgoz",
+      "first": "Orhan",
       "members": [
-        "Anna Wuttig",
-        "Alex Cusumano",
-        "Daniel Laorenza"
+        "Joseph Piccirilli",
+        "Chuan He",
+        "Tao Pan"
       ]
     },
     {
-      "last": "Wang",
-      "first": "Jian-Kai",
+      "last": "Banks",
+      "first": "Brayden",
       "members": [
-        "Alex Cusumano",
-        "Jiwoong Park",
-        "Giulia Galli"
-      ]
-    },
-    {
-      "last": "Cai",
-      "first": "Xinyu",
-      "members": [
-        "Anna Wuttig",
-        "Daniel Laorenza",
-        "Norbert Scherer"
+        "Sarah King",
+        "Bozhi Tian",
+        "Peter Maurer"
       ]
     },
     {
@@ -86,39 +77,12 @@ window.ROSTER_SEED = {
       ]
     },
     {
-      "last": "Yubangguo",
-      "first": "Nie",
+      "last": "Boysen",
+      "first": "Jordan",
       "members": [
-        "Weixin Tang",
-        "Yamuna Krishnan",
-        "Bryan Dickinson"
-      ]
-    },
-    {
-      "last": "Deng",
-      "first": "Yi",
-      "members": [
-        "David Mazziotti",
-        "Gregory Voth",
-        "John Anderson"
-      ]
-    },
-    {
-      "last": "Lu",
-      "first": "Di",
-      "members": [
-        "Jie Zhou",
-        "Bryan Dickinson",
-        "Joseph Piccirilli"
-      ]
-    },
-    {
-      "last": "Short",
-      "first": "Whitney",
-      "members": [
-        "Laura Gagliardi",
-        "Dipti Jasrasaria",
-        "Giulia Galli"
+        "Aaron Dinner",
+        "Suri Vaikuntanathan",
+        "Andrew Ferguson"
       ]
     },
     {
@@ -131,30 +95,21 @@ window.ROSTER_SEED = {
       ]
     },
     {
-      "last": "Villalobos",
-      "first": "Carlos",
+      "last": "Cai",
+      "first": "Xinyu",
       "members": [
-        "Chuan He",
-        "Raymond Moellering",
-        "Kay Macleod"
+        "Anna Wuttig",
+        "Daniel Laorenza",
+        "Norbert Scherer"
       ]
     },
     {
-      "last": "Lok",
-      "first": "Dawn",
+      "last": "Callahan",
+      "first": "Jack",
       "members": [
-        "Jie Zhou",
-        "Hening Lin",
-        "Yamuna Krishnan"
-      ]
-    },
-    {
-      "last": "Chen",
-      "first": "Di",
-      "members": [
-        "Dmitri Talapin",
         "Sarah King",
-        "John Anderson"
+        "Allison Squires",
+        "Norbert Scherer"
       ]
     },
     {
@@ -167,111 +122,93 @@ window.ROSTER_SEED = {
       ]
     },
     {
-      "last": "Qiu",
-      "first": "Qianwei",
-      "members": [
-        "Jie Zhou",
-        "Bryan Dickinson",
-        "Tao Pan"
-      ]
-    },
-    {
-      "last": "Acikgoz",
-      "first": "Orhan",
+      "last": "Chan",
+      "first": "Allison",
       "members": [
         "Joseph Piccirilli",
-        "Chuan He",
-        "Tao Pan"
-      ]
-    },
-    {
-      "last": "Yellen",
-      "first": "Simon",
-      "members": [
-        "Mark Levin",
-        "Scott Snyder",
-        "Viresh Rawal"
-      ]
-    },
-    {
-      "last": "Nguyen",
-      "first": "Vi Tho",
-      "members": [
-        "Hening Lin",
-        "Bryan Dickinson",
-        "Cassandra Hayne"
-      ]
-    },
-    {
-      "last": "Liang",
-      "first": "Keyi",
-      "members": [
-        "Jack Szostak",
-        "Joseph Piccirilli",
-        "Raymond Moellering"
-      ]
-    },
-    {
-      "last": "Zhou",
-      "first": "Cindy",
-      "members": [
         "Weixin Tang",
-        "Bryan Dickinson",
-        "Phoebe Rice"
+        "Jack Szostak"
       ]
     },
     {
-      "last": "Jayasekara",
-      "first": "Hiran",
+      "last": "Chen",
+      "first": "Di",
       "members": [
-        "Gregory Voth",
-        "Laura Gagliardi",
-        "Suri Vaikuntanathan"
+        "Dmitri Talapin",
+        "Sarah King",
+        "John Anderson"
       ]
     },
     {
-      "last": "Meier",
-      "first": "Nathan",
+      "last": "Chen",
+      "first": "Yuezhou",
+      "members": [
+        "Jiwoong Park",
+        "Bozhi Tian",
+        "Anna Wuttig"
+      ]
+    },
+    {
+      "last": "Cheng",
+      "first": "Kevin",
       "members": [
         "Laura Gagliardi",
+        "Suri Vaikuntanathan",
+        "Andrew Ferguson"
+      ]
+    },
+    {
+      "last": "Cherek",
+      "first": "Levi",
+      "members": [
         "Benoit Roux",
-        "Dipti Jasrasaria"
+        "Aaron Dinner",
+        "Tobin Sosnick"
       ]
     },
     {
-      "last": "Kwok",
-      "first": "Kyle",
+      "last": "Chu",
+      "first": "York (Heng-Chi)",
       "members": [
-        "John Anderson",
-        "Mark Levin",
-        "Daniel Laorenza"
+        "Jiwoong Park",
+        "Philippe Guyot-Sionnest",
+        "Greg Engel"
       ]
     },
     {
-      "last": "Risbud",
-      "first": "Advait",
+      "last": "DeLeon",
+      "first": "Reymundo",
+      "members": [
+        "Chuan He",
+        "Weixin Tang",
+        "Joseph Piccirilli"
+      ]
+    },
+    {
+      "last": "Deng",
+      "first": "Yi",
       "members": [
         "David Mazziotti",
-        "Philippe Guyot-Sionnest",
-        "Allison Squires"
+        "Gregory Voth",
+        "John Anderson"
       ]
     },
     {
-      "last": "Swann",
-      "first": "Noah",
+      "last": "Edmonds",
+      "first": "Lucia",
       "members": [
-        "Viresh Rawal",
+        "Anna Wuttig",
         "Mark Levin",
-        "Guangbin Dong"
+        "Alex Cusumano"
       ]
     },
     {
-      "last": "Zhou",
-      "first": "Zhikun",
+      "last": "Eichmann",
+      "first": "Kayla",
       "members": [
-        "Aaron Dinner",
-        "Dipti Jasrasaria",
-        "Benoit Roux"
+        "Greg Engel",
+        "Steven Sibener",
+        "Andrei Tokmakoff"
       ]
     },
     {
@@ -293,120 +230,12 @@ window.ROSTER_SEED = {
       ]
     },
     {
-      "last": "Manjunatha",
-      "first": "Akshatha",
-      "members": [
-        "Raymond Moellering",
-        "Jack Szostak",
-        "Ka Yee Lee"
-      ]
-    },
-    {
-      "last": "Wilber",
-      "first": "Charles",
-      "members": [
-        "Hening Lin",
-        "Bozhi Tian",
-        "Cassandra Hayne"
-      ]
-    },
-    {
       "last": "Hwang",
       "first": "Jeongyeon (Joanne)",
       "members": [
         "Guangbin Dong",
         "Alex Cusumano",
         "Viresh Rawal"
-      ]
-    },
-    {
-      "last": "Chan",
-      "first": "Allison",
-      "members": [
-        "Joseph Piccirilli",
-        "Weixin Tang",
-        "Jack Szostak"
-      ]
-    },
-    {
-      "last": "Lu",
-      "first": "Ruiyang",
-      "members": [
-        "Jie Zhou",
-        "Raymond Moellering",
-        "Yamuna Krishnan"
-      ]
-    },
-    {
-      "last": "Chu",
-      "first": "York (Heng-Chi)",
-      "members": [
-        "Jiwoong Park",
-        "Philippe Guyot-Sionnest",
-        "Greg Engel"
-      ]
-    },
-    {
-      "last": "Chen",
-      "first": "Yuezhou",
-      "members": [
-        "Jiwoong Park",
-        "Bozhi Tian",
-        "Anna Wuttig"
-      ]
-    },
-    {
-      "last": "Levine",
-      "first": "Gabriel",
-      "members": [
-        "Dmitri Talapin",
-        "Andrei Tokmakoff",
-        "Steven Sibener"
-      ]
-    },
-    {
-      "last": "Jensen",
-      "first": "Eric",
-      "members": [
-        "Hening Lin",
-        "Yamuna Krishnan",
-        "Chuan He"
-      ]
-    },
-    {
-      "last": "Tejada Peralta",
-      "first": "Jeffrey",
-      "members": [
-        "Dipti Jasrasaria",
-        "David Mazziotti",
-        "John Anderson"
-      ]
-    },
-    {
-      "last": "Eichmann",
-      "first": "Kayla",
-      "members": [
-        "Greg Engel",
-        "Steven Sibener",
-        "Andrei Tokmakoff"
-      ]
-    },
-    {
-      "last": "Strang",
-      "first": "Timothy",
-      "members": [
-        "Gregory Voth",
-        "Andrew Ferguson",
-        "David Mazziotti"
-      ]
-    },
-    {
-      "last": "Wilcox",
-      "first": "Alexander",
-      "members": [
-        "Dmitri Talapin",
-        "Philippe Guyot-Sionnest",
-        "Andrei Tokmakoff"
       ]
     },
     {
@@ -419,57 +248,57 @@ window.ROSTER_SEED = {
       ]
     },
     {
-      "last": "Edmonds",
-      "first": "Lucia",
+      "last": "Jayasekara",
+      "first": "Hiran",
       "members": [
-        "Anna Wuttig",
-        "Mark Levin",
-        "Alex Cusumano"
-      ]
-    },
-    {
-      "last": "Tu",
-      "first": "Qingshan",
-      "members": [
-        "Greg Engel",
-        "John Anderson",
-        "Dmitri Talapin"
-      ]
-    },
-    {
-      "last": "Cheng",
-      "first": "Kevin",
-      "members": [
+        "Gregory Voth",
         "Laura Gagliardi",
-        "Suri Vaikuntanathan",
-        "Andrew Ferguson"
+        "Suri Vaikuntanathan"
       ]
     },
     {
-      "last": "Yang",
-      "first": "Alex",
+      "last": "Jensen",
+      "first": "Eric",
       "members": [
         "Hening Lin",
         "Yamuna Krishnan",
-        "Weixin Tang"
+        "Chuan He"
       ]
     },
     {
-      "last": "Banks",
-      "first": "Brayden",
+      "last": "Juho",
+      "first": "Kim",
       "members": [
-        "Sarah King",
-        "Bozhi Tian",
-        "Peter Maurer"
+        "Anna Wuttig",
+        "Alex Cusumano",
+        "Daniel Laorenza"
       ]
     },
     {
-      "last": "Callahan",
-      "first": "Jack",
+      "last": "Kwok",
+      "first": "Kyle",
       "members": [
-        "Sarah King",
-        "Allison Squires",
-        "Norbert Scherer"
+        "John Anderson",
+        "Mark Levin",
+        "Daniel Laorenza"
+      ]
+    },
+    {
+      "last": "Levine",
+      "first": "Gabriel",
+      "members": [
+        "Dmitri Talapin",
+        "Andrei Tokmakoff",
+        "Steven Sibener"
+      ]
+    },
+    {
+      "last": "Liang",
+      "first": "Keyi",
+      "members": [
+        "Jack Szostak",
+        "Joseph Piccirilli",
+        "Raymond Moellering"
       ]
     },
     {
@@ -482,21 +311,138 @@ window.ROSTER_SEED = {
       ]
     },
     {
-      "last": "Cherek",
-      "first": "Levi",
+      "last": "Lok",
+      "first": "Dawn",
       "members": [
-        "Benoit Roux",
-        "Aaron Dinner",
-        "Tobin Sosnick"
+        "Jie Zhou",
+        "Hening Lin",
+        "Yamuna Krishnan"
       ]
     },
     {
-      "last": "Boysen",
-      "first": "Jordan",
+      "last": "Lu",
+      "first": "Di",
       "members": [
-        "Aaron Dinner",
-        "Suri Vaikuntanathan",
-        "Andrew Ferguson"
+        "Jie Zhou",
+        "Bryan Dickinson",
+        "Joseph Piccirilli"
+      ]
+    },
+    {
+      "last": "Lu",
+      "first": "Ruiyang",
+      "members": [
+        "Jie Zhou",
+        "Raymond Moellering",
+        "Yamuna Krishnan"
+      ]
+    },
+    {
+      "last": "Manjunatha",
+      "first": "Akshatha",
+      "members": [
+        "Raymond Moellering",
+        "Jack Szostak",
+        "Ka Yee Lee"
+      ]
+    },
+    {
+      "last": "Meier",
+      "first": "Nathan",
+      "members": [
+        "Laura Gagliardi",
+        "Benoit Roux",
+        "Dipti Jasrasaria"
+      ]
+    },
+    {
+      "last": "Nguyen",
+      "first": "Vi Tho",
+      "members": [
+        "Hening Lin",
+        "Bryan Dickinson",
+        "Cassandra Hayne"
+      ]
+    },
+    {
+      "last": "Qiu",
+      "first": "Qianwei",
+      "members": [
+        "Jie Zhou",
+        "Bryan Dickinson",
+        "Tao Pan"
+      ]
+    },
+    {
+      "last": "Risbud",
+      "first": "Advait",
+      "members": [
+        "David Mazziotti",
+        "Philippe Guyot-Sionnest",
+        "Allison Squires"
+      ]
+    },
+    {
+      "last": "Short",
+      "first": "Whitney",
+      "members": [
+        "Laura Gagliardi",
+        "Dipti Jasrasaria",
+        "Giulia Galli"
+      ]
+    },
+    {
+      "last": "Strang",
+      "first": "Timothy",
+      "members": [
+        "Gregory Voth",
+        "Andrew Ferguson",
+        "David Mazziotti"
+      ]
+    },
+    {
+      "last": "Swann",
+      "first": "Noah",
+      "members": [
+        "Viresh Rawal",
+        "Mark Levin",
+        "Guangbin Dong"
+      ]
+    },
+    {
+      "last": "Tejada Peralta",
+      "first": "Jeffrey",
+      "members": [
+        "Dipti Jasrasaria",
+        "David Mazziotti",
+        "John Anderson"
+      ]
+    },
+    {
+      "last": "Tu",
+      "first": "Qingshan",
+      "members": [
+        "Greg Engel",
+        "John Anderson",
+        "Dmitri Talapin"
+      ]
+    },
+    {
+      "last": "Villalobos",
+      "first": "Carlos",
+      "members": [
+        "Chuan He",
+        "Raymond Moellering",
+        "Kay Macleod"
+      ]
+    },
+    {
+      "last": "Wang",
+      "first": "Jian-Kai",
+      "members": [
+        "Alex Cusumano",
+        "Jiwoong Park",
+        "Giulia Galli"
       ]
     },
     {
@@ -509,12 +455,75 @@ window.ROSTER_SEED = {
       ]
     },
     {
-      "last": "DeLeon",
-      "first": "Reymundo",
+      "last": "Wilber",
+      "first": "Charles",
       "members": [
-        "Chuan He",
+        "Hening Lin",
+        "Bozhi Tian",
+        "Cassandra Hayne"
+      ]
+    },
+    {
+      "last": "Wilcox",
+      "first": "Alexander",
+      "members": [
+        "Dmitri Talapin",
+        "Philippe Guyot-Sionnest",
+        "Andrei Tokmakoff"
+      ]
+    },
+    {
+      "last": "Xu",
+      "first": "Felix",
+      "members": [
+        "Viresh Rawal",
+        "Guangbin Dong",
+        "Scott Snyder"
+      ]
+    },
+    {
+      "last": "Yang",
+      "first": "Alex",
+      "members": [
+        "Hening Lin",
+        "Yamuna Krishnan",
+        "Weixin Tang"
+      ]
+    },
+    {
+      "last": "Yellen",
+      "first": "Simon",
+      "members": [
+        "Mark Levin",
+        "Scott Snyder",
+        "Viresh Rawal"
+      ]
+    },
+    {
+      "last": "Yubangguo",
+      "first": "Nie",
+      "members": [
         "Weixin Tang",
-        "Joseph Piccirilli"
+        "Yamuna Krishnan",
+        "Bryan Dickinson"
+      ]
+    },
+    {
+      "last": "Zhou",
+      "first": "Cindy",
+      "members": [
+        "Weixin Tang",
+        "Bryan Dickinson",
+        "Phoebe Rice"
+      ]
+    },
+    {
+      "last": "Zhou",
+      "first": "Zhikun",
+      "members": [
+        "Aaron Dinner",
+        "Dipti Jasrasaria",
+        "Benoit Roux"
       ]
     }
   ]
