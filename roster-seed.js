@@ -261,7 +261,7 @@ window.ROSTER_SEED = {
       "first": "Eric",
       "members": [
         "Hening Lin",
-        "Yamuna Krishnan",
+        "Alex Cusumano",
         "Chuan He"
       ]
     },
@@ -270,7 +270,7 @@ window.ROSTER_SEED = {
       "first": "Kim",
       "members": [
         "Anna Wuttig",
-        "Alex Cusumano",
+        "Yamuna Krishnan",
         "Daniel Laorenza"
       ]
     },
